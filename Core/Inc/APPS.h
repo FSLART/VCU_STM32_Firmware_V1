@@ -29,8 +29,14 @@ extern bool APPS_Error;
 
 long map(long x, long in_min, long in_max, long out_min, long out_max);
 
+typedef struct {
+    bool error;                // Error status
+    uint16_t percentage;       // 0-100 value
+    uint16_t percentage_1000;  // 0-1000 value
+} APPS_Result_t;
+
 void APPS_Init(float min_volts, float max_volts, float APPS_Tolerance_Volts, uint16_t APPS_Delta);
-bool APPS_Function(uint16_t apps1, uint16_t apps2);
+APPS_Result_t APPS_Function(uint16_t apps1, uint16_t apps2);
 bool APPS_TimedOut(uint16_t apps1, uint16_t apps2);
 void APPS_PrintValues(void);
 void AUTO_CALIBRATION(uint16_t APPS1, uint16_t APPS2);
