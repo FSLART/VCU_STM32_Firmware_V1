@@ -696,59 +696,30 @@ int main(void) {
 
     while (1) {
         /* USER CODE END WHILE */
-
         /* USER CODE BEGIN 3 */
         heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
 
         static uint32_t previous_tick = 0;
         uint32_t current_tick = HAL_GetTick();
         if (current_tick - previous_tick >= 200) {
-            // Update moving averages with new APPS values
-
             // Print both raw and averaged APPS values
             printf("\n\rADC2_APPS1: %d (%d avg) ADC2_APPS2: %d (%d avg)\n\r",
                    ADC2_APPS[0], apps1_avg, ADC2_APPS[1], apps2_avg);
 
+            // print the apps_funtion values
+            APPS_Result_t result = APPS_Function(apps1_avg, apps2_avg);
+            if (result.error) {
+                // Handle error
+            } else {
+                // Use result.percentage or result.percentage_1000
+            }
+            printf("APPS1: %d APPS2: %d\n\r", result.percentage, result.percentage_1000);
+
             // printf("\n\rADC1: %d ADC2: %d ADC3: %d ADC4: %d\n\r", adc_0, adc_1, adc_2, adc_3);
             // printf("Brake Pressure: %f bar\n\r", MeasureBrakePressure(adc_0));
-            // vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+
+            vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
             vcu.precharge_signal = 1;  // Simulate precharge signal for testing
-
-            // vcu.brake_pressure = ADC1_VAL[0];
-            // printf("\r\n brake_pressure %d", vcu.brake_pressure);
-            //  TxHeader.IDE = CAN_ID_STD;
-            //  TxHeader.StdId = 0x420;
-            //  TxHeader.RTR = CAN_RTR_DATA;
-            //  TxHeader.DLC = 3;
-
-            // TxData[0] = 0x01;
-            // 330 TxData[1] = 0x02;
-            // TxData[2] = 0x03;
-
-            // if (HAL_CAN_AddTxMessage(&hcan1, &TxHeader, TxData, &TxMailbox) != HAL_OK) {
-            //     Error_Handler();
-            // }
-
-            // print adc values
-            // printf("ADC1: %d ADC2: %d ADC3: %d ADC4: %d\n\r", ADC_VAL[0], ADC_VAL[1], ADC_VAL[2], ADC_VAL[3]);
-            // uint16_t adc_ref = 5;   // Example ADC reference voltage in millivolts
-            // uint8_t adc_bits = 12;  // Example ADC resolution in bits
-
-            // convert adc to temperature
-            // float temp1 = PI_ConvertADCToTemperature(ADC_VAL[0], adc_ref, adc_bits);
-            // float temp2 = PI_ConvertADCToTemperature(ADC_VAL[1], adc_ref, adc_bits);
-            // float temp3 = PI_ConvertADCToTemperature(ADC_VAL[2], adc_ref, adc_bits);
-
-            // HAL_ADC_Start(&hadc3);
-            // HAL_ADC_PollForConversion(&hadc3, 100);
-            // ADC_VAL = HAL_ADC_GetValue(&hadc3);
-            //  printf("%d", ADC_VAL);
-            // HAL_ADC_Stop(&hadc3);
-            // float temp3 = PI_ConvertADCToTemperature(ADC_VAL, adc_ref, adc_bits);
-            //  printf("Temp3: %f\n\r", temp3);
-            // float voltage = (ADC_VAL * 3.3) / 4095.0;
-            //  printf("voltage: %f\n\r", voltage);
-            //  printf("Temp1: %f\n\r(", temp3);
 
             previous_tick = current_tick;
         }

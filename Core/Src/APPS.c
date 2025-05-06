@@ -57,7 +57,7 @@ void APPS_Init(float min_volts, float max_volts, float tolerance_volts, uint16_t
     APPS_Tolerance_Volts = tolerance_volts;
     APPS_MIN_bits = APPS_VoltsToBits(min_volts);
     APPS_MAX_bits = APPS_VoltsToBits(max_volts);
-    APPS_Tolerance_bits = APPS_VoltsToBits(tolerance_volts);    
+    APPS_Tolerance_bits = APPS_VoltsToBits(tolerance_volts);
     APPS_Delta = apps_delta;
     APPS_CalculateFunctionalRegion();
 }
@@ -228,12 +228,8 @@ uint16_t APPS_ToPercentage_1000(uint16_t apps_mean) {
 /// @param apps2 value of the APPS2
 /// @return true if there is an error, false otherwise
 
-bool APPS_Function(uint16_t apps1, uint16_t apps2) {
-    // from  [0,APPS_MIN_bits ] the percentage is 0
-    // from  [APPS_MIN_bits,APPS_MIN_bits + APPS_Tolerance_bits] the percentage is 0
-    // from  [APPS_MIN_bits + APPS_Tolerance_bits,APPS_MAX_bits - APPS_Tolerance_bits] the percentage is 0-100
-    // from  [APPS_MAX_bits - APPS_Tolerance_bits,APPS_MAX_bits] the percentage is 100
-    // from  [APPS_MAX_bits,4095] the percentage is 0
+APPS_Result_t APPS_Function(uint16_t apps1, uint16_t apps2) {
+    APPS_Result_t result = {0};
 
     APPS_UpdateAPPS1(apps1);
     APPS_UpdateAPPS2(apps2);
@@ -243,23 +239,18 @@ bool APPS_Function(uint16_t apps1, uint16_t apps2) {
         APPS_Percentage_1000 = 0;
         APPS_Mean = 0;
 
-        return 1;
+        result.error = true;
     } else {
         // No Error
         APPS_Mean = APPS_MeanValue(APPS1, APPS2);
 
-        // if ((APPS_Mean >= APPS_MIN_bits) && (APPS_Mean <= (APPS_MIN_bits + APPS_Tolerance_bits))) {
         if (APPS_Mean <= (APPS_MIN_bits + APPS_Tolerance_bits)) {
             APPS_Percentage = 0;
             APPS_Percentage_1000 = 0;
-            //} else if ((APPS_Mean <= APPS_MAX_bits) && (APPS_Mean >= (APPS_MAX_bits - APPS_Tolerance_bits))) {
-            //}else if (APPS_Mean >= (APPS_MAX_bits)) {
         } else if (APPS_Mean >= (APPS_MAX_bits - APPS_Tolerance_bits)) {
             APPS_Percentage = 100;
             APPS_Percentage_1000 = 1000;
         } else {
-            // APPS_Percentage = map(APPS_Mean, APPS_MIN_bits + APPS_Tolerance_bits, APPS_MAX_bits - APPS_Tolerance_bits, 0, 100);
-            // APPS_Percentage_1000 = map(APPS_Mean, APPS_MIN_bits + APPS_Tolerance_bits, APPS_MAX_bits - APPS_Tolerance_bits, 0, 1000);
             APPS_Percentage = map(APPS_Mean, APPS_MIN_bits + APPS_Tolerance_bits, APPS_MAX_bits, 0, 100);
             APPS_Percentage_1000 = map(APPS_Mean, APPS_MIN_bits + APPS_Tolerance_bits, APPS_MAX_bits, 0, 1000);
         }
@@ -280,8 +271,14 @@ bool APPS_Function(uint16_t apps1, uint16_t apps2) {
         APPS_ToPercentage(APPS_Mean);
         APPS_ToPercentage_1000(APPS_Mean);
 
-        return 0;
+        result.error = false;
     }
+
+    // Set the result values
+    result.percentage = APPS_Percentage;
+    result.percentage_1000 = APPS_Percentage_1000;
+
+    return result;
 }
 
 void APPS_PrintValues(void) {
