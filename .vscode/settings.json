@@ -1,0 +1,7 @@
+{
+    "cmake.useCMakePresets": "always",
+    "files.associations": {
+        "proportional_integral_controller.h": "c",
+        "stm32f7xx_hal_can.h": "c"
+    }
+}
