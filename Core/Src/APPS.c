@@ -312,7 +312,7 @@ void APPS_PrintValues(void) {
         "\"APPS_functional_region\":%d,"
         "\"Active_Curve_Type\":%d,"
         "\"Throttle_Curve\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]"
-        "}\r\n",
+        "}\n",
         apps_state.apps1_value, apps_state.apps2_value, apps_state.mean,
         apps_state.percentage, apps_state.percentage_1000,
         apps_state.error, apps_state.min_bits, apps_state.max_bits,

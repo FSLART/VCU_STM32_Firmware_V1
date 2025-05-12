@@ -2,6 +2,9 @@
     "cmake.useCMakePresets": "always",
     "files.associations": {
         "proportional_integral_controller.h": "c",
-        "stm32f7xx_hal_can.h": "c"
+        "stm32f7xx_hal_can.h": "c",
+        "can_asdb.h": "c",
+        "system_error": "c",
+        "can_pwtdb.h": "c"
     }
 }

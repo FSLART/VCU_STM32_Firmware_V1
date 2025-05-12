@@ -70,14 +70,21 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(int2_r2d_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : dout3_Water_Pump_Pin dout4_R2D_Buzzer_Pin LED_IGN_Pin LED_R2D_Pin
-                           LED_AUTO_Pin LED_PWT_Pin */
-  GPIO_InitStruct.Pin = dout3_Water_Pump_Pin|dout4_R2D_Buzzer_Pin|LED_IGN_Pin|LED_R2D_Pin
-                          |LED_AUTO_Pin|LED_PWT_Pin;
+  /*Configure GPIO pins : dout3_Water_Pump_Pin LED_IGN_Pin LED_R2D_Pin LED_AUTO_Pin
+                           LED_PWT_Pin */
+  GPIO_InitStruct.Pin = dout3_Water_Pump_Pin|LED_IGN_Pin|LED_R2D_Pin|LED_AUTO_Pin
+                          |LED_PWT_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : dout4_R2D_Buzzer_Pin */
+  GPIO_InitStruct.Pin = dout4_R2D_Buzzer_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
+  HAL_GPIO_Init(dout4_R2D_Buzzer_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LED_DATA_Pin LED_Heartbeat_Pin dout2_r2d_led_Pin dout1_BMS_IGN_Pin */
   GPIO_InitStruct.Pin = LED_DATA_Pin|LED_Heartbeat_Pin|dout2_r2d_led_Pin|dout1_BMS_IGN_Pin;

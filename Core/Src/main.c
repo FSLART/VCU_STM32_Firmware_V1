@@ -42,6 +42,14 @@
 
 #include "../Inc/proportional_integral_controller.h"
 #include "APPS.h"
+#include "CAN_utils.h"
+
+#define CAN_DATA_BUS &hcan1
+#define CAN_POWERTRAIN_BUS &hcan2
+#define CAN_AUTONOMOUS &hcan3
+
+#define print_state 1
+#define print_variables 0
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
@@ -295,7 +303,7 @@ void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
     static uint32_t last_update_time = 0;
     static uint32_t fade_counter = 0;
     static uint32_t pwm_counter = 0;
-    static const uint32_t PWM_PERIOD = 100;  // PWM period for software PWM
+    static const uint32_t PWM_PERIOD = 5;    // PWM period for software PWM
     static const uint32_t FADE_PERIOD = 50;  // How fast the LED brightness changes
 
     uint32_t current_time = HAL_GetTick();
@@ -316,7 +324,7 @@ void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
     }
 
     // Implement software PWM
-    pwm_counter = (pwm_counter + 1) % PWM_PERIOD;
+    pwm_counter = (pwm_counter + 2) % PWM_PERIOD;
 
     if (pwm_counter < brightness) {
         HAL_GPIO_WritePin(GPIO_Port, GPIO_Pin, GPIO_PIN_SET);  // Turn LED on
@@ -337,7 +345,7 @@ void StartR2DSound(void) {
         vcu.r2d_sound_start_time = HAL_GetTick();
 
         // Activate buzzer - set the GPIO pin that controls the buzzer
-        HAL_GPIO_WritePin(GPIOB, dout4_R2D_Buzzer_Pin, GPIO_PIN_SET);
+        HAL_GPIO_WritePin(GPIOD, dout4_R2D_Buzzer_Pin, GPIO_PIN_SET);
 
         printf("\n\rR2D Sound: Started\n\r");
     }
@@ -357,7 +365,7 @@ void UpdateR2DSound(void) {
         // Sound duration: 2 seconds (2000 ms)
         if (elapsed_time >= 1000) {
             // Stop the sound
-            HAL_GPIO_WritePin(GPIOB, dout4_R2D_Buzzer_Pin, GPIO_PIN_RESET);
+            HAL_GPIO_WritePin(GPIOD, dout4_R2D_Buzzer_Pin, GPIO_PIN_RESET);
             vcu.r2d_sound_playing = false;
             vcu.r2d_sound_completed = true;
 
@@ -373,7 +381,7 @@ void UpdateR2DSound(void) {
 void ResetR2DSound(void) {
     vcu.r2d_sound_playing = false;
     vcu.r2d_sound_completed = false;
-    HAL_GPIO_WritePin(GPIOB, dout4_R2D_Buzzer_Pin, GPIO_PIN_RESET);
+    HAL_GPIO_WritePin(GPIOD, dout4_R2D_Buzzer_Pin, GPIO_PIN_RESET);
 }
 
 /**
@@ -454,11 +462,12 @@ void UpdateState(void) {
             break;
 
         case STATE_READY_MANUAL:
-            // send pedal position to the inverter
 
             if (!vcu.ignition_switch_signal) {
+                // Change to standby if ignition is off
                 current_state = STATE_STANDBY;
             } else if (!vcu.r2d_toggle_signal) {
+                // Change to waiting for R2D manual if the button is pressed again
                 current_state = STATE_WAITING_FOR_R2D_MANUAL;
             }
             break;
@@ -481,8 +490,9 @@ void UpdateState(void) {
 
     // Execute entry actions when state has changed
     if (current_state != previous_state) {
+#ifdef print_state
         print_state_transition(previous_state, current_state);
-
+#endif
         // State entry actions
         switch (current_state) {
             case STATE_INIT:
@@ -513,6 +523,8 @@ void UpdateState(void) {
             case STATE_WAITING_FOR_R2D_AUTO:
             case STATE_WAITING_FOR_R2D_MANUAL:
                 HAL_GPIO_WritePin(GPIOB, dout1_BMS_IGN_Pin, GPIO_PIN_SET);
+                HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_RESET);  // Turn off R2D LED
+                ResetR2DSound();                                        // Reset R2D sound state
                 break;
 
             case STATE_READY_MANUAL:
@@ -560,11 +572,13 @@ void HandleState(void) {
             // Waiting indicator for manual mode
             // fade in and out the R2D LED
             led_fade_nonblocking(GPIOD, LED_R2D_Pin);
+            led_fade_nonblocking(GPIOB, dout2_r2d_led_Pin);
             break;
 
         case STATE_WAITING_FOR_R2D_AUTO:
             // Waiting indicator for autonomous mode
             led_fade_nonblocking(GPIOD, LED_R2D_Pin);
+            led_fade_nonblocking(GPIOB, dout2_r2d_led_Pin);
             break;
 
         case STATE_READY_MANUAL:
@@ -625,6 +639,61 @@ void MovingAverage_Update(uint16_t apps1_raw, uint16_t apps2_raw) {
     apps2_avg = (uint16_t)(sum2 / APPS_MA_WINDOW_SIZE);
 }
 
+/* CAN variables for CAN1, CAN2, and CAN3 */
+CAN_TxHeaderTypeDef TxHeader_CAN1;
+uint8_t TxData_CAN1[8];
+uint32_t TxMailbox_CAN1;
+
+//-------------------------------------------
+CAN_TxHeaderTypeDef TxHeader_CAN2;
+uint8_t TxData_CAN2[8];
+uint32_t TxMailbox_CAN2;
+
+//-------------------------------------------
+CAN_TxHeaderTypeDef TxHeader_CAN3;
+uint8_t TxData_CAN3[8];
+uint32_t TxMailbox_CAN3;
+
+CAN_RxHeaderTypeDef RxHeader;
+uint8_t RxData[8];
+
+can_data_t can_data1;  // CAN data structure for CAN1
+can_data_t can_data2;  // CAN data structure for CAN2
+can_data_t can_data3;  // CAN data structure for CAN3
+
+volatile bool can1_rx_flag = false;
+volatile bool can2_rx_flag = false;
+volatile bool can3_rx_flag = false;
+
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK) {
+        Error_Handler();
+        if (hcan->Instance == CAN1) {
+            can_data1.id = RxHeader.StdId;
+            can_data1.length = RxHeader.DLC;
+            for (int i = 0; i < RxHeader.DLC; i++) {
+                can_data1.message[i] = RxData[i];
+            }
+            can1_rx_flag = true;
+
+        } else if (hcan->Instance == CAN2) {
+            can_data2.id = RxHeader.StdId;
+            can_data2.length = RxHeader.DLC;
+            for (int i = 0; i < RxHeader.DLC; i++) {
+                can_data2.message[i] = RxData[i];
+            }
+            can2_rx_flag = true;
+
+        } else if (hcan->Instance == CAN3) {
+            can_data3.id = RxHeader.StdId;
+            can_data3.length = RxHeader.DLC;
+            for (int i = 0; i < RxHeader.DLC; i++) {
+                can_data3.message[i] = RxData[i];
+            }
+            can3_rx_flag = true;
+        }
+    }
+}
 /* USER CODE END 0 */
 
 /**
@@ -675,8 +744,22 @@ int main(void) {
     MX_CAN1_Init();
     MX_ADC1_Init();
     MX_ADC2_Init();
+    MX_CAN2_Init();
+    MX_CAN3_Init();
     /* USER CODE BEGIN 2 */
+
     HAL_CAN_Start(&hcan1);
+    if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+        Error_Handler();
+    }
+    HAL_CAN_Start(&hcan2);
+    if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+        Error_Handler();
+    }
+    HAL_CAN_Start(&hcan3);
+    if (HAL_CAN_ActivateNotification(&hcan3, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
+        Error_Handler();
+    }
 
     startup_leds_animation();
     MovingAverage_Init();  // Initialize moving average buffers
@@ -685,9 +768,6 @@ int main(void) {
 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
-    CAN_TxHeaderTypeDef TxHeader;
-    uint8_t TxData[3];
-    uint32_t TxMailbox;
 
     // HAL_ADC_Start_DMA(&hadc1, ADC1_VAL, 4);
     HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
@@ -696,31 +776,43 @@ int main(void) {
 
     while (1) {
         /* USER CODE END WHILE */
+
         /* USER CODE BEGIN 3 */
         heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
 
         static uint32_t previous_tick = 0;
         uint32_t current_tick = HAL_GetTick();
-        if (current_tick - previous_tick >= 200) {
-            // Print both raw and averaged APPS values
-            printf("\n\rADC2_APPS1: %d (%d avg) ADC2_APPS2: %d (%d avg)\n\r",
-                   ADC2_APPS[0], apps1_avg, ADC2_APPS[1], apps2_avg);
-
+        if (current_tick - previous_tick >= 100) {
             // print the apps_funtion values
+
+            // send to can 1
+            TxHeader_CAN2.IDE = CAN_ID_STD;
+            TxHeader_CAN2.StdId = 0x69;
+            TxHeader_CAN2.RTR = CAN_RTR_DATA;
+            TxHeader_CAN2.DLC = 2;
+
             APPS_Result_t result = APPS_Function(apps1_avg, apps2_avg);
+            APPS_PrintValues();
             if (result.error) {
                 // Handle error
             } else {
                 // Use result.percentage or result.percentage_1000
             }
-            printf("APPS1: %d APPS2: %d\n\r", result.percentage, result.percentage_1000);
+
+            TxData_CAN2[0] = result.percentage_1000;
+            TxData_CAN2[1] = result.percentage_1000 >> 8;
+
+            if (HAL_CAN_AddTxMessage(&hcan2, &TxHeader_CAN2, TxData_CAN2, &TxMailbox_CAN2) != HAL_OK) {
+                Error_Handler();
+            }
+
+            can_bus_send_HV500_SetERPM(result.percentage_1000, &hcan2);
 
             // printf("\n\rADC1: %d ADC2: %d ADC3: %d ADC4: %d\n\r", adc_0, adc_1, adc_2, adc_3);
             // printf("Brake Pressure: %f bar\n\r", MeasureBrakePressure(adc_0));
 
             vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
             vcu.precharge_signal = 1;  // Simulate precharge signal for testing
-
             previous_tick = current_tick;
         }
 
