@@ -5,6 +5,10 @@
         "stm32f7xx_hal_can.h": "c",
         "can_asdb.h": "c",
         "system_error": "c",
-        "can_pwtdb.h": "c"
-    }
+        "can_pwtdb.h": "c",
+        "main.h": "c",
+        "stm32f7xx_hal_cortex.h": "c",
+        "can_datadb.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
 }

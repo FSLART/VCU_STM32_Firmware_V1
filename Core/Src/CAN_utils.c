@@ -6,9 +6,6 @@
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
 
-
-
-
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
     TxHeader.StdId = id;
@@ -265,4 +262,36 @@ void can_filter_id_bus2(can_data_t *data) {
         default:
             break;
     }
+}
+
+/* Autonomous bus*/
+
+/*Send_CAN_AdBus_RPM*/
+void can_bus_send_AdBus_RPM(uint32_t rpm, CAN_HandleTypeDef *hcan) {
+    can_data_t data;
+    data.id = CAN_TOJAL_SEND_RPM;
+    data.length = 2;
+
+    memset(data.message, 0x00, sizeof(data.message));
+
+    rpm = rpm / 10;
+    MAP_ENCODE_TOJAL_RPM(data.message, rpm);
+
+    can_bus_send(hcan, data.id, data.message, data.length);
+}
+
+void send_vcu_heartbeat(CAN_HandleTypeDef *hcan) {
+    can_data_t data;
+    data.id = 1111;
+    data.length = 8;
+    memset(data.message, 0x00, sizeof(data.message));
+    data.message[0] = 0x01;  // VCU heartbeat
+    data.message[1] = 0x02;  // VCU heartbeat
+    data.message[2] = 0x03;  // VCU heartbeat
+    data.message[3] = 0x04;  // VCU heartbeat
+    data.message[4] = 0x05;  // VCU heartbeat
+    data.message[5] = 0x06;  // VCU heartbeat
+    data.message[6] = 0x07;  // VCU heartbeat
+    data.message[7] = 0x08;  // VCU heartbeat
+    can_bus_send(hcan, data.id, data.message, data.length);
 }

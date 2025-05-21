@@ -83,8 +83,6 @@ void Error_Handler(void);
 #define LED_DATA_GPIO_Port GPIOB
 #define LED_Heartbeat_Pin GPIO_PIN_4
 #define LED_Heartbeat_GPIO_Port GPIOB
-#define dout2_r2d_led_Pin GPIO_PIN_6
-#define dout2_r2d_led_GPIO_Port GPIOB
 #define dout1_BMS_IGN_Pin GPIO_PIN_7
 #define dout1_BMS_IGN_GPIO_Port GPIOB
 

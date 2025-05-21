@@ -8,64 +8,76 @@
 #ifndef APPS_H
 #define APPS_H
 
-#include <stdbool.h>  // Defines true
+#include <stdbool.h>
 #include <stdint.h>
 
-extern float APPS_MIN_Volts;
-extern uint16_t APPS_MIN_bits;
-extern float APPS_MAX_Volts;
-extern uint16_t APPS_MAX_bits;
-extern float APPS_Tolerance_Volts;
-extern uint16_t APPS_Tolerance_bits;
-extern uint16_t APPS_Bit_Resolution;
-extern float APPS_Voltage;
-extern uint16_t APPS1;
-extern uint16_t APPS2;
-extern uint16_t APPS_Mean;
-extern uint16_t APPS_Percentage;
-extern uint16_t APPS_Percentage_1000;
-extern uint16_t APPS_functional_region;
-extern bool APPS_Error;
-
-long map(long x, long in_min, long in_max, long out_min, long out_max);
-
-// Throttle curve types
+// Error types
 typedef enum {
-    THROTTLE_CURVE_STANDARD = 0,  // Standard curve (0 to 100%)
-    THROTTLE_CURVE_REGEN,         // Regenerative braking curve (-100 to 100%)
-    THROTTLE_CURVE_CUSTOM1,       // Custom curve 1
-    THROTTLE_CURVE_CUSTOM2,       // Custom curve 2
-    THROTTLE_CURVE_COUNT          // Number of curve types
-} APPS_ThrottleCurveType_t;
+    APPS_ERROR_NONE = 0,
+    APPS_ERROR_DISAGREEMENT,     // Sensors disagree beyond tolerance
+    APPS_ERROR_RANGE,            // Values outside valid range
+    APPS_ERROR_SHORT_CIRCUIT,    // Sensor shorted to VCC or GND
+    APPS_ERROR_SHORTED_TOGETHER  // Sensors shorted together
+} APPS_ErrorType_t;
 
-// External variables
-extern APPS_ThrottleCurveType_t APPS_ActiveCurveType;
-
-// Modified result structure to support regenerative braking with signed values
+// Result structure
 typedef struct {
-    bool error;               // Error status
-    int16_t percentage;       // -100 to 100 value (negative for regen braking)
-    int16_t percentage_1000;  // -1000 to 1000 value (negative for regen braking)
+    bool error;                   // Error status
+    APPS_ErrorType_t error_type;  // Type of error detected
+    uint16_t percentage;          // 0 to 100 value
+    uint16_t percentage_1000;     // 0 to 1000 value (higher resolution)
+    uint16_t raw_value;           // Raw calculated throttle value
 } APPS_Result_t;
 
-void APPS_Init(float min_volts, float max_volts, float APPS_Tolerance_Volts, uint16_t APPS_Delta);
-APPS_Result_t APPS_Function(uint16_t apps1, uint16_t apps2);
-bool APPS_TimedOut(uint16_t apps1, uint16_t apps2);
-void APPS_PrintValues(void);
-void AUTO_CALIBRATION(uint16_t APPS1, uint16_t APPS2);
+// Configuration structure
+typedef struct {
+    uint16_t min_value;  // ADC value at 0% throttle
+    uint16_t max_value;  // ADC value at 100% throttle
+    uint16_t tolerance;  // Tolerance in ADC bits
+    uint16_t delta;      // Offset between APPS1 and APPS2
+} APPS_Config_t;
 
-// Enhanced throttle curve functions
-bool APPS_UpdateThrottleCurve(const int16_t* new_curve, uint8_t points, APPS_ThrottleCurveType_t curve_type);
-uint8_t APPS_GetThrottleCurve(int16_t* curve_buffer, APPS_ThrottleCurveType_t curve_type);
-bool APPS_SetActiveCurveType(APPS_ThrottleCurveType_t curve_type);
-APPS_ThrottleCurveType_t APPS_GetActiveCurveType(void);
+// Core functions
+void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance, uint16_t delta);
+APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);
+APPS_ErrorType_t APPS_GetErrorType(uint16_t apps1, uint16_t apps2);
+void APPS_PrintStatus(void);
+APPS_Config_t APPS_GetConfig(void);
+bool APPS_SetConfig(APPS_Config_t config);
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+/**
+ * @brief Starts APPS calibration
+ */
+void APPS_StartCalibration(void);
 
-#ifdef __cplusplus
-}
-#endif
+/**
+ * @brief Updates APPS calibration with new sensor values
+ *
+ * Call this function regularly from main loop with ADC values to perform calibration
+ *
+ * @param apps1 Current APPS1 sensor value
+ * @param apps2 Current APPS2 sensor value
+ * @return true if calibration is complete, false if still in progress
+ */
+bool APPS_Calibrate(uint16_t apps1, uint16_t apps2);
+
+/**
+ * @brief Checks if APPS calibration is in progress
+ *
+ * @return true if calibration is in progress, false otherwise
+ */
+bool APPS_IsCalibrating(void);
+
+/**
+ * @brief Gets the suggested calibration values
+ *
+ * @param min_value Pointer to store suggested min value
+ * @param max_value Pointer to store suggested max value
+ * @param tolerance Pointer to store suggested tolerance
+ * @param delta Pointer to store suggested delta
+ * @return true if values are valid (calibration complete), false otherwise
+ */
+bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
+                               uint16_t* tolerance, uint16_t* delta);
 
 #endif /* APPS_H */

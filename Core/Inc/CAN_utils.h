@@ -184,6 +184,12 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
  */
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
 
+/* Autonomous bus functions */
+void can_bus_send_AdBus_RPM(uint32_t rpm, CAN_HandleTypeDef *hcan);
+
+/* Heartbeat functions */
+void send_vcu_heartbeat(CAN_HandleTypeDef *hcan);
+
 /**
  * @brief CAN mailbox used for transmitting messages
  */

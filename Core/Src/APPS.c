@@ -2,10 +2,15 @@
  * @file APPS.c
  * @brief Accelerator Pedal Position Sensor (APPS) management module
  *
- * This module handles the dual redundant APPS sensors, performs error
- * detection, and calculates throttle position percentage.
+ * This module handles dual redundant APPS sensors, performs error
+ * detection, and calculates throttle position percentage using
+ * bit values directly from ADC (0-4095).
+ *
+ * The dual redundancy approach follows FSAE rules requirements for
+ * throttle position sensing safety.
  */
 
+/* ---------------------- Includes ---------------------- */
 #include "APPS.h"
 
 #include <stdbool.h>
@@ -15,248 +20,167 @@
 
 #include "main.h"
 
-/* ---------------------- Constants and Types ---------------------- */
+/* ---------------------- Constants ---------------------- */
+/**
+ * Configuration constants for APPS module
+ */
+#define APPS_ADC_RESOLUTION 4095      // 12-bit ADC resolution (0-4095)
+#define APPS_MIN_VALID_VALUE 50       // Minimum valid sensor reading (detect shorts to GND)
+#define APPS_MAX_VALID_VALUE 4050     // Maximum valid sensor reading (detect shorts to VCC)
+#define APPS_SHORT_THRESHOLD 10       // Threshold for detecting sensors shorted together
+#define APPS_TIMEOUT_MS 100           // Error timeout in milliseconds
+#define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
+#define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
-// ADC configuration
-#define APPS_ADC_RESOLUTION 4095        // 12-bit ADC resolution
-#define APPS_REFERENCE_VOLTAGE 3.3f     // ADC reference voltage
-#define APPS_TIMEOUT_MS 100             // Error timeout in milliseconds
-#define APPS_SHORT_THRESHOLD 20         // Threshold for detecting sensors shorted together
-#define APPS_MIN_VALID_VALUE 100        // Minimum valid sensor reading
-#define APPS_MAX_VALID_VALUE 4000       // Maximum valid sensor reading
-#define APPS_CALIBRATION_TIME_MS 10000  // Time for calibration in ms
-
-// Additional bounds
-#define APPS_PERCENTAGE_MAX 100
-#define APPS_PERCENTAGE_1000_MAX 999
-
-// Throttle curve configuration
-#define THROTTLE_CURVE_POINTS 11  // Number of points in each throttle curve
-
-// Make our struct definition match the header file
-APPS_ThrottleCurveType_t APPS_ActiveCurveType = THROTTLE_CURVE_STANDARD;
-
-typedef enum {
-    APPS_ERROR_NONE = 0,
-    APPS_ERROR_TOLERANCE,
-    APPS_ERROR_RANGE,
-    APPS_ERROR_SHORT_CIRCUIT,
-    APPS_ERROR_SHORTED_TOGETHER
-} APPS_ErrorType;
-
-/* ---------------------- Module Variables ---------------------- */
-
-// Configuration parameters (combined voltage and bit values in one section)
+/* ---------------------- Module State ---------------------- */
+/**
+ * Combined APPS module state containing configuration, current readings,
+ * and error information.
+ */
 static struct {
-    // Configuration values
-    float min_volts;             // Minimum voltage
-    float max_volts;             // Maximum voltage
-    float tolerance_volts;       // Voltage tolerance
-    uint16_t min_bits;           // Minimum value in ADC bits
-    uint16_t max_bits;           // Maximum value in ADC bits
-    uint16_t tolerance_bits;     // Tolerance in ADC bits
-    uint16_t delta;              // Offset between sensors
-    uint16_t functional_region;  // Valid range in ADC bits
+    // Configuration parameters
+    uint16_t min_value;  // Minimum ADC value (0% throttle)
+    uint16_t max_value;  // Maximum ADC value (100% throttle)
+    uint16_t tolerance;  // Tolerance in ADC bits for error detection
+    uint16_t delta;      // Offset between APPS1 and APPS2 sensors
 
-    // Current state
-    uint16_t apps1_value;       // Current APPS1 value
-    uint16_t apps2_value;       // Current APPS2 value
-    uint16_t mean;              // Mean value
-    int16_t percentage;         // Percentage (-100 to 100) - Changed from uint16_t to int16_t
-    int16_t percentage_1000;    // Extended percentage (-999 to 999) - Changed from uint16_t to int16_t
-    bool error;                 // Error flag
-    uint32_t error_start_time;  // Time when error was first detected
+    // Current sensor values and calculations
+    uint16_t apps1_raw;         // Raw APPS1 value from ADC
+    uint16_t apps2_raw;         // Raw APPS2 value from ADC
+    uint16_t delta_real_time;   // Real-time calculated delta between sensors
+    uint16_t apps2_adjusted;    // APPS2 with delta adjustment applied
+    uint16_t mean;              // Mean of both sensor values (used for throttle calculation)
+    uint16_t percentage;        // Throttle percentage (0-100)
+    uint16_t percentage_1000;   // Higher resolution throttle percentage (0-999)
+    uint16_t functional_range;  // Range between min and max thresholds
+
+    // Error tracking
+    bool error;                   // Error flag (true if error detected)
+    APPS_ErrorType_t error_type;  // Current error type
+    uint32_t error_start_time;    // Time when error was first detected
 } apps_state = {0};
 
-// Throttle curves for different modes
-// Standard curve (0-100%)
-static int16_t throttle_curve_standard[THROTTLE_CURVE_POINTS] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
+/* ---------------------- Calibration State ---------------------- */
+/**
+ * Separate state for APPS calibration process that stores min/max
+ * values observed and calculates suggested calibration parameters.
+ */
+static struct {
+    bool is_calibrating;           // Flag to indicate calibration in progress
+    bool is_complete;              // Flag to indicate calibration complete
+    uint32_t start_time;           // Start time of calibration
+    uint16_t apps1_min;            // Min value of APPS1 observed during calibration
+    uint16_t apps1_max;            // Max value of APPS1 observed during calibration
+    uint16_t apps2_min;            // Min value of APPS2 observed during calibration
+    uint16_t apps2_max;            // Max value of APPS2 observed during calibration
+    int32_t delta_sum;             // Sum of deltas for average calculation
+    uint16_t sample_count;         // Number of samples collected during calibration
+    uint16_t suggested_min;        // Suggested min value for calibration
+    uint16_t suggested_max;        // Suggested max value for calibration
+    uint16_t suggested_delta;      // Suggested delta for calibration
+    uint16_t suggested_tolerance;  // Suggested tolerance for calibration
+} calib_state = {0};
 
-// Regenerative braking curve (-100 to 100%)
-// First half for regen braking (negative values), second half for acceleration
-static int16_t throttle_curve_regen[THROTTLE_CURVE_POINTS] = {-100, -75, -50, -25, -10, 0, 25, 50, 75, 90, 100};
+/* ---------------------- Private Function Prototypes ---------------------- */
+/**
+ * Internal functions not exposed in the header
+ */
+static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted);
+static bool check_error_timeout(uint16_t apps1, uint16_t apps2_adjusted);
+static inline void calculate_functional_range(void);
 
-// Custom curves that can be configured by user
-static int16_t throttle_curve_custom1[THROTTLE_CURVE_POINTS] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
-static int16_t throttle_curve_custom2[THROTTLE_CURVE_POINTS] = {0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100};
-
-// Pointer to the current active curve
-static int16_t* active_throttle_curve = throttle_curve_standard;
-
-/* ---------------------- Private Function Declarations ---------------------- */
-
-static inline uint16_t convert_volts_to_bits(float volts);
-static inline void calculate_functional_region(void);
-static inline uint16_t calculate_mean(uint16_t apps1, uint16_t apps2);
-static inline APPS_ErrorType check_apps_errors(uint16_t apps1, uint16_t apps2);
-static bool check_error_timeout(uint16_t apps1, uint16_t apps2);
-static int32_t map_value(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max);
-static int16_t apply_throttle_curve(uint16_t input_percentage);
-
-/* ---------------------- Utility Functions ---------------------- */
+/* ---------------------- Core Functions ---------------------- */
 
 /**
- * @brief Maps a value from one range to another with overflow protection
+ * @brief Calculates the effective functional range of the sensors
+ *
+ * This range is used for mapping sensor values to throttle percentages
+ * and factors in the tolerance values.
  */
-static int32_t map_value(int32_t x, int32_t in_min, int32_t in_max, int32_t out_min, int32_t out_max) {
-    // Prevent division by zero
-    if (in_min == in_max) return out_min;
-
-    // Clamp input to range
-    if (x < in_min) x = in_min;
-    if (x > in_max) x = in_max;
-
-    // Use 64-bit intermediate calculation to prevent overflow
-    int64_t numerator = (int64_t)(x - in_min) * (int64_t)(out_max - out_min);
-    int32_t result = (int32_t)(numerator / (in_max - in_min) + out_min);
-
-    // Ensure result is in output range
-    if (result < out_min) return out_min;
-    if (result > out_max) return out_max;
-
-    return result;
+static inline void calculate_functional_range(void) {
+    uint16_t min_threshold = apps_state.min_value + apps_state.tolerance;
+    uint16_t max_threshold = apps_state.max_value - apps_state.tolerance;
+    apps_state.functional_range = max_threshold - min_threshold;
 }
-
-/**
- * @brief Converts voltage to ADC bits
- */
-static inline uint16_t convert_volts_to_bits(float volts) {
-    return (uint16_t)((volts * APPS_ADC_RESOLUTION) / APPS_REFERENCE_VOLTAGE);
-}
-
-/**
- * @brief Calculates functional region (valid range) for APPS
- */
-static inline void calculate_functional_region(void) {
-    apps_state.functional_region = (apps_state.max_bits - apps_state.tolerance_bits) -
-                                   (apps_state.min_bits + apps_state.tolerance_bits);
-}
-
-/* ---------------------- Sensor Value Processing ---------------------- */
-
-/**
- * @brief Calculates mean value of both APPS sensors
- */
-static inline uint16_t calculate_mean(uint16_t apps1, uint16_t apps2) {
-    return (apps1 + apps2) / 2;
-}
-
-/* ---------------------- Error Detection ---------------------- */
-
-/**
- * @brief Performs all error checks on APPS values and returns error type
- */
-static inline APPS_ErrorType check_apps_errors(uint16_t apps1, uint16_t apps2) {
-    // Check if values differ by more than 10%
-    if (apps1 < (apps2 * 0.9) || apps1 > (apps2 * 1.1)) {
-        return APPS_ERROR_TOLERANCE;
-    }
-
-    // Check if values are within tolerance range
-    if ((apps1 < (apps_state.min_bits - apps_state.tolerance_bits)) ||
-        (apps1 > (apps_state.max_bits + (2 * apps_state.tolerance_bits))) ||
-        (apps2 < (apps_state.min_bits - apps_state.tolerance_bits)) ||
-        (apps2 > (apps_state.max_bits + (2 * apps_state.tolerance_bits)))) {
-        return APPS_ERROR_RANGE;
-    }
-
-    // Check for short circuit to ground or VCC
-    if ((apps1 < APPS_MIN_VALID_VALUE) ||
-        (apps2 < APPS_MIN_VALID_VALUE) ||
-        (apps1 > APPS_MAX_VALID_VALUE) ||
-        (apps2 > APPS_MAX_VALID_VALUE)) {
-        return APPS_ERROR_SHORT_CIRCUIT;
-    }
-
-    // Check if sensors are shorted together
-    if (abs((int)apps1 - ((int)apps2 + apps_state.delta)) < APPS_SHORT_THRESHOLD) {
-        return APPS_ERROR_SHORTED_TOGETHER;
-    }
-
-    return APPS_ERROR_NONE;
-}
-
-/**
- * @brief Checks if error condition has persisted beyond timeout
- */
-static bool check_error_timeout(uint16_t apps1, uint16_t apps2) {
-    APPS_ErrorType error = check_apps_errors(apps1, apps2);
-    uint32_t current_time = HAL_GetTick();
-
-    if (error != APPS_ERROR_NONE) {
-        if (!apps_state.error) {
-            // First detection of error, start timer
-            apps_state.error_start_time = current_time;
-            apps_state.error = true;
-        } else if ((current_time - apps_state.error_start_time) > APPS_TIMEOUT_MS) {
-            // Error has persisted beyond timeout
-            return true;
-        }
-    } else {
-        // No error detected
-        apps_state.error = false;
-    }
-
-    return false;
-}
-
-/* ---------------------- Public Interface Functions ---------------------- */
 
 /**
  * @brief Initializes APPS module with calibration values
  *
- * @param min_volts Minimum voltage from APPS sensor
- * @param max_volts Maximum voltage from APPS sensor
- * @param tolerance_volts Tolerance voltage for measurements
- * @param apps_delta_value Delta value between APPS1 and APPS2
+ * @param min_value Minimum ADC value (0% throttle position)
+ * @param max_value Maximum ADC value (100% throttle position)
+ * @param tolerance Tolerance in ADC bits for error detection
+ * @param delta Offset between APPS1 and APPS2 sensors
  */
-void APPS_Init(float min_volts, float max_volts, float tolerance_volts, uint16_t apps_delta_value) {
-    // Store configuration values
-    apps_state.min_volts = min_volts;
-    apps_state.max_volts = max_volts;
-    apps_state.tolerance_volts = tolerance_volts;
-    apps_state.min_bits = convert_volts_to_bits(min_volts);
-    apps_state.max_bits = convert_volts_to_bits(max_volts);
-    apps_state.tolerance_bits = convert_volts_to_bits(tolerance_volts);
-    apps_state.delta = apps_delta_value;
+void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance, uint16_t delta) {
+    // Store configuration
+    apps_state.min_value = min_value;
+    apps_state.max_value = max_value;
+    apps_state.tolerance = tolerance;
+    apps_state.delta = delta;
 
-    // Initialize other state
+    // Calculate functional range based on configuration
+    calculate_functional_range();
+
+    // Reset state
     apps_state.error = false;
-    apps_state.apps1_value = 0;
-    apps_state.apps2_value = 0;
+    apps_state.error_type = APPS_ERROR_NONE;
+    apps_state.apps1_raw = 0;
+    apps_state.apps2_raw = 0;
+    apps_state.apps2_adjusted = 0;
     apps_state.mean = 0;
     apps_state.percentage = 0;
     apps_state.percentage_1000 = 0;
-
-    calculate_functional_region();
 }
 
 /**
- * @brief Processes APPS values and returns throttle position and error status
+ * @brief Processes APPS sensor values and returns throttle position
+ *
+ * This main processing function handles:
+ * 1. Storing raw sensor values
+ * 2. Applying sensor adjustments
+ * 3. Checking for errors
+ * 4. Calculating throttle position
+ *
+ * @param apps1 Raw ADC value from APPS1 sensor (0-4095)
+ * @param apps2 Raw ADC value from APPS2 sensor (0-4095)
+ * @return APPS_Result_t Structure with throttle position and error status
  */
-APPS_Result_t APPS_Function(uint16_t apps1, uint16_t apps2) {
+APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     APPS_Result_t result = {0};
 
-    // Update current values
-    apps_state.apps1_value = apps1;
-    apps_state.apps2_value = apps2 - apps_state.delta;  // Apply delta adjustment to APPS2
+    // Store raw values
+    apps_state.apps1_raw = apps1;
+    apps_state.apps2_raw = apps2;
 
-    // Check for errors
-    if (check_error_timeout(apps_state.apps1_value, apps_state.apps2_value)) {
+    // Apply delta adjustment to APPS2
+    apps_state.apps2_adjusted = (apps2 > apps_state.delta) ? (apps2 - apps_state.delta) : 0;
+
+    // Calculate real-time delta for debugging/calibration
+    apps_state.delta_real_time = apps_state.apps2_adjusted - apps1;
+
+    // Check for errors with timeout
+    if (check_error_timeout(apps1, apps_state.apps2_adjusted)) {
         // Error condition - zero throttle
         apps_state.percentage = 0;
         apps_state.percentage_1000 = 0;
         apps_state.mean = 0;
         result.error = true;
+        result.error_type = apps_state.error_type;
     } else {
-        // No error - calculate throttle position using bit shift instead of division
-        apps_state.mean = (apps_state.apps1_value + apps_state.apps2_value) >> 1;
+        // No error - calculate throttle position
+        // Use bit shift for division by 2 (faster than division)
+        apps_state.mean = (apps1 + apps_state.apps2_adjusted) >> 1;
 
-        // Precalculate thresholds once to avoid repeated calculations
-        uint16_t min_threshold = apps_state.min_bits + apps_state.tolerance_bits;
-        uint16_t max_threshold = apps_state.max_bits - apps_state.tolerance_bits;
+        // Precalculate thresholds once
+        uint16_t min_threshold = apps_state.min_value + apps_state.tolerance;
+        // uint16_t min_threshold = apps_state.min_value;
+        uint16_t max_threshold = apps_state.max_value - apps_state.tolerance;
+        // uint16_t max_threshold = apps_state.max_value;
 
-        // Determine throttle percentage based on pedal position
+        // Make sure functional range is up to date
+        calculate_functional_range();
+
+        // Determine throttle percentage based on position
         if (apps_state.mean <= min_threshold) {
             // Below minimum threshold
             apps_state.percentage = 0;
@@ -266,285 +190,289 @@ APPS_Result_t APPS_Function(uint16_t apps1, uint16_t apps2) {
             apps_state.percentage = APPS_PERCENTAGE_MAX;
             apps_state.percentage_1000 = APPS_PERCENTAGE_1000_MAX;
         } else {
-            // In the active range - inline the mapping calculation to avoid function call
+            // In the active range - map the value
             uint32_t numerator = (uint32_t)(apps_state.mean - min_threshold) * APPS_PERCENTAGE_MAX;
-            uint16_t raw_percentage = numerator / (max_threshold - min_threshold);
+            apps_state.percentage = numerator / apps_state.functional_range;
 
-            // Get throttle value from curve
-            int16_t throttle_value = apply_throttle_curve(raw_percentage);
+            // Calculate higher resolution percentage
+            numerator = (uint32_t)(apps_state.mean - min_threshold) * APPS_PERCENTAGE_1000_MAX;
+            apps_state.percentage_1000 = numerator / apps_state.functional_range;
 
-            // Handle both positive and negative values (for regenerative braking)
-            apps_state.percentage = throttle_value;
+            // Apply bounds checking for calculated percentages
+            if (apps_state.percentage_1000 > APPS_PERCENTAGE_1000_MAX) {
+                apps_state.percentage_1000 = APPS_PERCENTAGE_1000_MAX;
+            } else if (apps_state.percentage_1000 < 0) {
+                apps_state.percentage_1000 = 0;
+            }
 
-            // Optimize percentage_1000 calculation by factoring out common code
-            apps_state.percentage_1000 = (throttle_value * APPS_PERCENTAGE_1000_MAX) / APPS_PERCENTAGE_MAX;
+            if (apps_state.percentage > APPS_PERCENTAGE_MAX) {
+                apps_state.percentage = APPS_PERCENTAGE_MAX;
+            } else if (apps_state.percentage < 0) {
+                apps_state.percentage = 0;
+            }
         }
 
         result.error = false;
+        result.error_type = APPS_ERROR_NONE;
     }
 
-    // Set the result values (including negative values for regen)
+    // Set result values
     result.percentage = apps_state.percentage;
     result.percentage_1000 = apps_state.percentage_1000;
+    result.raw_value = apps_state.mean;
 
     return result;
 }
 
-/**
- * @brief Prints current APPS values to serial port in JSON format
- */
-void APPS_PrintValues(void) {
-    // Get the active curve for display
-    int16_t curve_values[THROTTLE_CURVE_POINTS];
-    APPS_GetThrottleCurve(curve_values, APPS_ActiveCurveType);
+/* ---------------------- Error Handling Functions ---------------------- */
 
+/**
+ * @brief Checks for errors in APPS sensor values
+ *
+ * Detects various error conditions:
+ * - Short circuit to ground or VCC
+ * - Sensors shorted together
+ * - (Commented out) Value disagreement > 10%
+ * - (Commented out) Values outside valid range
+ *
+ * @param apps1 APPS1 sensor value
+ * @param apps2_raw Raw APPS2 sensor value (without delta adjustment)
+ * @param apps2_adjusted APPS2 sensor value with delta adjustment
+ * @return APPS_ErrorType_t Error type detected, or APPS_ERROR_NONE
+ */
+static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted) {
+    // Check if values differ by more than 10%
+
+    uint16_t max_difference = apps_state.functional_range / 10;
+    if (abs((int)apps1 - (int)apps2_adjusted) > max_difference) {
+        return APPS_ERROR_DISAGREEMENT;
+    }
+
+    // Check for values outside valid range
+    /*
+    if ((apps1 < (apps_state.min_value - apps_state.tolerance)) ||
+        (apps1 > (apps_state.max_value + apps_state.tolerance)) ||
+        (apps2_adjusted < (apps_state.min_value - apps_state.tolerance)) ||
+        (apps2_adjusted > (apps_state.max_value + apps_state.tolerance))) {
+        return APPS_ERROR_RANGE;
+    }
+    */
+
+    // Check for short circuit to ground or VCC - use raw value for hardware issues
+    if ((apps1 < APPS_MIN_VALID_VALUE) ||
+        (apps2_raw < APPS_MIN_VALID_VALUE) ||
+        (apps1 > APPS_MAX_VALID_VALUE) ||
+        (apps2_raw > APPS_MAX_VALID_VALUE)) {
+        return APPS_ERROR_SHORT_CIRCUIT;
+    }
+
+    // Check if sensors are shorted together - use raw value for hardware issues
+    if (abs((int)apps1 - (int)apps2_raw) < APPS_SHORT_THRESHOLD) {
+        return APPS_ERROR_SHORTED_TOGETHER;
+    }
+
+    return APPS_ERROR_NONE;
+}
+
+/**
+ * @brief Checks if error condition has persisted beyond timeout
+ *
+ * Implements debouncing for error detection to avoid false triggering
+ * on transient conditions. An error must persist for APPS_TIMEOUT_MS
+ * before being considered valid.
+ *
+ * @param apps1 APPS1 sensor value
+ * @param apps2_adjusted APPS2 sensor value with delta adjustment
+ * @return bool True if error has timed out, false otherwise
+ */
+static bool check_error_timeout(uint16_t apps1, uint16_t apps2_adjusted) {
+    APPS_ErrorType_t current_error = check_apps_errors(apps1, apps_state.apps2_raw, apps2_adjusted);
+    uint32_t current_time = HAL_GetTick();
+
+    if (current_error != APPS_ERROR_NONE) {
+        if (!apps_state.error) {
+            // First detection of error
+            apps_state.error_start_time = current_time;
+            apps_state.error = true;
+            apps_state.error_type = current_error;
+        } else if ((current_time - apps_state.error_start_time) > APPS_TIMEOUT_MS) {
+            // Error has persisted beyond timeout
+            return true;
+        }
+    } else {
+        // No error detected
+        apps_state.error = false;
+        apps_state.error_type = APPS_ERROR_NONE;
+    }
+
+    return false;
+}
+
+/* ---------------------- Debugging Functions ---------------------- */
+
+/**
+ * @brief Prints current APPS status for debugging
+ *
+ * Outputs a JSON-formatted string containing all relevant APPS state
+ * information for debugging and monitoring purposes.
+ */
+void APPS_PrintStatus(void) {
     printf(
         "{"
         "\"APPS1\":%d,"
         "\"APPS2\":%d,"
+        "\"APPS2_Adjusted\":%d,"
+        "\"APPS_Delta_Real_Time\":%d,"
         "\"APPS_Mean\":%d,"
         "\"APPS_Percentage\":%d,"
         "\"APPS_Percentage_mil\":%d,"
         "\"APPS_Error\":%d,"
-        "\"APPS_MIN_bits\":%d,"
-        "\"APPS_MAX_bits\":%d,"
-        "\"APPS_Tolerance_bits\":%d,"
-        "\"APPS_functional_region\":%d,"
-        "\"Active_Curve_Type\":%d,"
-        "\"Throttle_Curve\":[%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d]"
-        "}\n",
-        apps_state.apps1_value, apps_state.apps2_value, apps_state.mean,
-        apps_state.percentage, apps_state.percentage_1000,
-        apps_state.error, apps_state.min_bits, apps_state.max_bits,
-        apps_state.tolerance_bits, apps_state.functional_region,
-        APPS_ActiveCurveType,
-        curve_values[0], curve_values[1], curve_values[2], curve_values[3],
-        curve_values[4], curve_values[5], curve_values[6], curve_values[7],
-        curve_values[8], curve_values[9], curve_values[10]);
+        "\"APPS_ErrorType\":%d,"
+        "\"APPS_Min\":%d,"
+        "\"APPS_Max\":%d,"
+        "\"APPS_Tolerance\":%d,"
+        "\"APPS_Delta\":%d,"
+        "\"APPS_Functional_Range\":%d"
+        "}\n\r",
+        apps_state.apps1_raw,
+        apps_state.apps2_raw,
+        apps_state.apps2_adjusted,
+        apps_state.delta_real_time,
+        apps_state.mean,
+        apps_state.percentage,
+        apps_state.percentage_1000,
+        apps_state.error,
+        apps_state.error_type,
+        apps_state.min_value,
+        apps_state.max_value,
+        apps_state.tolerance,
+        apps_state.delta,
+        apps_state.functional_range);
+}
+
+/* ---------------------- Calibration Functions ---------------------- */
+
+/**
+ * @brief Starts APPS calibration
+ *
+ * Initializes the calibration state and begins collecting min/max
+ * values from APPS sensors over a 10-second period.
+ */
+void APPS_StartCalibration(void) {
+    calib_state.is_calibrating = true;
+    calib_state.is_complete = false;
+    calib_state.start_time = HAL_GetTick();
+    calib_state.apps1_min = UINT16_MAX;
+    calib_state.apps1_max = 0;
+    calib_state.apps2_min = UINT16_MAX;
+    calib_state.apps2_max = 0;
+    calib_state.delta_sum = 0;
+    calib_state.sample_count = 0;
+
+    printf("APPS Calibration started. Press and release pedal several times over the next 10 seconds...\n");
 }
 
 /**
- * @brief Sets the active throttle curve type
+ * @brief Updates APPS calibration with new sensor values
  *
- * @param curve_type The curve type to set active
- * @return bool true if successful, false otherwise
+ * Call this function regularly from main loop with ADC values to perform calibration.
+ * Captures min/max values and calculates average delta between sensors.
+ *
+ * @param apps1 Current APPS1 sensor value
+ * @param apps2 Current APPS2 sensor value
+ * @return true if calibration is complete, false if still in progress
  */
-bool APPS_SetActiveCurveType(APPS_ThrottleCurveType_t curve_type) {
-    if (curve_type >= THROTTLE_CURVE_COUNT) {
+bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
+    // If not calibrating or already complete, do nothing
+    if (!calib_state.is_calibrating || calib_state.is_complete) {
+        return calib_state.is_complete;
+    }
+
+    uint32_t current_time = HAL_GetTick();
+
+    // Check if calibration period is over
+    if (current_time - calib_state.start_time >= 10000) {  // 10 seconds
+        // Finalize calibration
+        // Calculate average delta
+        int32_t avg_delta = (calib_state.sample_count > 0) ? (calib_state.delta_sum / calib_state.sample_count) : 0;
+
+        // Ensure delta is positive (as expected by the code)
+        calib_state.suggested_delta = (avg_delta > 0) ? (uint16_t)avg_delta : 0;
+
+        // Calculate suggested values
+        calib_state.suggested_min = calib_state.apps1_min;
+        calib_state.suggested_max = calib_state.apps1_max;
+        calib_state.suggested_tolerance = 50;  // Default suggested tolerance
+
+        // Print results
+        printf("\nAPPS Calibration Results:\n");
+        printf("APPS1 - Min: %u, Max: %u (Range: %u)\n",
+               calib_state.apps1_min, calib_state.apps1_max,
+               calib_state.apps1_max - calib_state.apps1_min);
+        printf("APPS2 - Min: %u, Max: %u (Range: %u)\n",
+               calib_state.apps2_min, calib_state.apps2_max,
+               calib_state.apps2_max - calib_state.apps2_min);
+        printf("Average Delta between sensors: %d\n", avg_delta);
+
+        // Print calibration recommendations
+        printf("\nRecommended Calibration Values:\n");
+        printf("min_value: %u\n", calib_state.suggested_min);
+        printf("max_value: %u\n", calib_state.suggested_max);
+        printf("delta: %u\n", calib_state.suggested_delta);
+        printf("tolerance: %u (adjust based on sensor stability)\n", calib_state.suggested_tolerance);
+
+        printf("\nUse these values with APPS_Init(min_value, max_value, tolerance, delta)\n");
+
+        calib_state.is_calibrating = false;
+        calib_state.is_complete = true;
+        return true;
+    }
+
+    // Continue collecting data
+    // Update min/max for APPS1
+    if (apps1 < calib_state.apps1_min && apps1 > APPS_MIN_VALID_VALUE) calib_state.apps1_min = apps1;
+    if (apps1 > calib_state.apps1_max && apps1 < APPS_MAX_VALID_VALUE) calib_state.apps1_max = apps1;
+
+    // Update min/max for APPS2
+    if (apps2 < calib_state.apps2_min && apps2 > APPS_MIN_VALID_VALUE) calib_state.apps2_min = apps2;
+    if (apps2 > calib_state.apps2_max && apps2 < APPS_MAX_VALID_VALUE) calib_state.apps2_max = apps2;
+
+    // Calculate instantaneous delta (APPS2 - APPS1)
+    int32_t current_delta = (int32_t)apps2 - (int32_t)apps1;
+    calib_state.delta_sum += current_delta;
+    calib_state.sample_count++;
+
+    return false;
+}
+
+/**
+ * @brief Checks if APPS calibration is in progress
+ *
+ * @return true if calibration is in progress, false otherwise
+ */
+bool APPS_IsCalibrating(void) {
+    return calib_state.is_calibrating;
+}
+
+/**
+ * @brief Gets the suggested calibration values
+ *
+ * @param min_value Pointer to store suggested min value
+ * @param max_value Pointer to store suggested max value
+ * @param tolerance Pointer to store suggested tolerance
+ * @param delta Pointer to store suggested delta
+ * @return true if values are valid (calibration complete), false otherwise
+ */
+bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
+                               uint16_t* tolerance, uint16_t* delta) {
+    if (!calib_state.is_complete) {
         return false;
     }
 
-    APPS_ActiveCurveType = curve_type;
-
-    // Set the appropriate curve array
-    switch (curve_type) {
-        case THROTTLE_CURVE_STANDARD:
-            active_throttle_curve = throttle_curve_standard;
-            break;
-        case THROTTLE_CURVE_REGEN:
-            active_throttle_curve = throttle_curve_regen;
-            break;
-        case THROTTLE_CURVE_CUSTOM1:
-            active_throttle_curve = throttle_curve_custom1;
-            break;
-        case THROTTLE_CURVE_CUSTOM2:
-            active_throttle_curve = throttle_curve_custom2;
-            break;
-        default:
-            active_throttle_curve = throttle_curve_standard;
-            return false;
-    }
+    if (min_value) *min_value = calib_state.suggested_min;
+    if (max_value) *max_value = calib_state.suggested_max;
+    if (tolerance) *tolerance = calib_state.suggested_tolerance;
+    if (delta) *delta = calib_state.suggested_delta;
 
     return true;
-}
-
-/**
- * @brief Gets the active throttle curve type
- *
- * @return APPS_ThrottleCurveType_t The active curve type
- */
-APPS_ThrottleCurveType_t APPS_GetActiveCurveType(void) {
-    return APPS_ActiveCurveType;
-}
-
-/**
- * @brief Updates a specified throttle curve with custom values
- *
- * @param new_curve Array of percentages for throttle response
- * @param points Number of points in the array (must match THROTTLE_CURVE_POINTS)
- * @param curve_type The curve type to update
- * @return bool true if update was successful, false otherwise
- */
-bool APPS_UpdateThrottleCurve(const int16_t* new_curve, uint8_t points, APPS_ThrottleCurveType_t curve_type) {
-    if (points != THROTTLE_CURVE_POINTS || new_curve == NULL || curve_type >= THROTTLE_CURVE_COUNT) {
-        return false;
-    }
-
-    // Validate curve values (must be monotonically increasing)
-    for (uint8_t i = 1; i < THROTTLE_CURVE_POINTS; i++) {
-        if (new_curve[i] < new_curve[i - 1]) {
-            return false;
-        }
-
-        // Check range based on curve type
-        if (curve_type == THROTTLE_CURVE_REGEN) {
-            // Regen curve can have values from -100 to 100
-            if (new_curve[i] < -100 || new_curve[i] > 100) {
-                return false;
-            }
-        } else {
-            // Standard curves have values from 0 to 100
-            if (new_curve[i] < 0 || new_curve[i] > 100) {
-                return false;
-            }
-        }
-    }
-
-    // Get pointer to the target curve
-    int16_t* target_curve;
-    switch (curve_type) {
-        case THROTTLE_CURVE_STANDARD:
-            target_curve = throttle_curve_standard;
-            break;
-        case THROTTLE_CURVE_REGEN:
-            target_curve = throttle_curve_regen;
-            break;
-        case THROTTLE_CURVE_CUSTOM1:
-            target_curve = throttle_curve_custom1;
-            break;
-        case THROTTLE_CURVE_CUSTOM2:
-            target_curve = throttle_curve_custom2;
-            break;
-        default:
-            return false;
-    }
-
-    // Copy new curve values
-    for (uint8_t i = 0; i < THROTTLE_CURVE_POINTS; i++) {
-        target_curve[i] = new_curve[i];
-    }
-
-    return true;
-}
-
-/**
- * @brief Gets a specified throttle curve
- *
- * @param curve_buffer Buffer to receive curve values (must be THROTTLE_CURVE_POINTS size)
- * @param curve_type The curve type to retrieve
- * @return uint8_t Number of points copied, 0 if error
- */
-uint8_t APPS_GetThrottleCurve(int16_t* curve_buffer, APPS_ThrottleCurveType_t curve_type) {
-    if (curve_buffer == NULL || curve_type >= THROTTLE_CURVE_COUNT) {
-        return 0;
-    }
-
-    // Get pointer to the requested curve
-    int16_t* source_curve;
-    switch (curve_type) {
-        case THROTTLE_CURVE_STANDARD:
-            source_curve = throttle_curve_standard;
-            break;
-        case THROTTLE_CURVE_REGEN:
-            source_curve = throttle_curve_regen;
-            break;
-        case THROTTLE_CURVE_CUSTOM1:
-            source_curve = throttle_curve_custom1;
-            break;
-        case THROTTLE_CURVE_CUSTOM2:
-            source_curve = throttle_curve_custom2;
-            break;
-        default:
-            return 0;
-    }
-
-    // Copy curve values
-    for (uint8_t i = 0; i < THROTTLE_CURVE_POINTS; i++) {
-        curve_buffer[i] = source_curve[i];
-    }
-
-    return THROTTLE_CURVE_POINTS;
-}
-
-/**
- * @brief Applies the active throttle curve to an input percentage
- *
- * @param input_percentage Input pedal position percentage (0-100)
- * @return int16_t Mapped throttle value after curve application (-100 to 100)
- */
-static int16_t apply_throttle_curve(uint16_t input_percentage) {
-    // Clamp input to valid range
-    if (input_percentage > 100) {
-        input_percentage = 100;
-    }
-
-    // Calculate indices and fractions for interpolation
-    float index_float = input_percentage / (100.0f / (THROTTLE_CURVE_POINTS - 1));
-    uint8_t index_lower = (uint8_t)index_float;
-    uint8_t index_upper = index_lower + 1;
-    float fraction = index_float - index_lower;
-
-    // Handle edge case for 100% input
-    if (index_upper >= THROTTLE_CURVE_POINTS) {
-        return active_throttle_curve[THROTTLE_CURVE_POINTS - 1];
-    }
-
-    // Interpolate between lower and upper points
-    return (int16_t)((1.0f - fraction) * active_throttle_curve[index_lower] +
-                     fraction * active_throttle_curve[index_upper]);
-}
-
-/**
- * @brief Performs auto-calibration of APPS sensors
- *
- * Records min/max values for 10 seconds, then calculates
- * recommended calibration parameters.
- */
-void AUTO_CALIBRATION(uint16_t apps1, uint16_t apps2) {
-    static struct {
-        uint16_t apps1_min;
-        uint16_t apps1_max;
-        uint16_t apps2_min;
-        uint16_t apps2_max;
-        uint32_t start_time;
-        bool active;
-    } cal = {0};
-
-    // Start calibration if not already active
-    if (!cal.active) {
-        cal.active = true;
-        cal.start_time = HAL_GetTick();
-        cal.apps1_min = APPS_ADC_RESOLUTION;
-        cal.apps1_max = 0;
-        cal.apps2_min = APPS_ADC_RESOLUTION;
-        cal.apps2_max = 0;
-    }
-
-    // Update min/max values
-    cal.apps1_min = (apps1 < cal.apps1_min) ? apps1 : cal.apps1_min;
-    cal.apps1_max = (apps1 > cal.apps1_max) ? apps1 : cal.apps1_max;
-    cal.apps2_min = (apps2 < cal.apps2_min) ? apps2 : cal.apps2_min;
-    cal.apps2_max = (apps2 > cal.apps2_max) ? apps2 : cal.apps2_max;
-
-    // Print current calibration values
-    printf("APPS1_MIN %d APPS1_MAX %d APPS2_MIN %d APPS2_MAX %d\r\n",
-           cal.apps1_min, cal.apps1_max, cal.apps2_min, cal.apps2_max);
-
-    // Stop calibration after time period
-    if (HAL_GetTick() - cal.start_time > APPS_CALIBRATION_TIME_MS) {
-        cal.active = false;
-
-        // Calculate recommended parameters
-        uint16_t calculated_delta = cal.apps1_min - cal.apps2_min;
-        float min_volts = (float)cal.apps1_min * APPS_REFERENCE_VOLTAGE / APPS_ADC_RESOLUTION;
-        float max_volts = (float)cal.apps1_max * APPS_REFERENCE_VOLTAGE / APPS_ADC_RESOLUTION;
-        float tolerance_volts = (float)(cal.apps1_max - cal.apps1_min) * 0.05 *
-                                APPS_REFERENCE_VOLTAGE / APPS_ADC_RESOLUTION;
-
-        printf(
-            "Calibration complete!\r\n"
-            "Recommended values for APPS_Init:\r\n"
-            "min_volts: %.2f, max_volts: %.2f, tolerance_volts: %.2f, delta: %d\r\n",
-            min_volts, max_volts, tolerance_volts, calculated_delta);
-    }
 }

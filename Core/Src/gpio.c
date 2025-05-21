@@ -56,7 +56,7 @@ void MX_GPIO_Init(void)
                           |LED_AUTO_Pin|LED_PWT_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOB, LED_DATA_Pin|LED_Heartbeat_Pin|dout2_r2d_led_Pin|dout1_BMS_IGN_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOB, LED_DATA_Pin|LED_Heartbeat_Pin|dout1_BMS_IGN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : int1_ign_Pin */
   GPIO_InitStruct.Pin = int1_ign_Pin;
@@ -86,8 +86,8 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_VERY_HIGH;
   HAL_GPIO_Init(dout4_R2D_Buzzer_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pins : LED_DATA_Pin LED_Heartbeat_Pin dout2_r2d_led_Pin dout1_BMS_IGN_Pin */
-  GPIO_InitStruct.Pin = LED_DATA_Pin|LED_Heartbeat_Pin|dout2_r2d_led_Pin|dout1_BMS_IGN_Pin;
+  /*Configure GPIO pins : LED_DATA_Pin LED_Heartbeat_Pin dout1_BMS_IGN_Pin */
+  GPIO_InitStruct.Pin = LED_DATA_Pin|LED_Heartbeat_Pin|dout1_BMS_IGN_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
