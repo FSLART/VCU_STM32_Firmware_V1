@@ -1,6 +1,8 @@
 #ifndef CAN_UTILS_H
 #define CAN_UTILS_H
 
+#include <stdbool.h>
+
 #include "main.h"
 #include "stm32f7xx_hal.h"
 
@@ -68,6 +70,27 @@ typedef struct {
 extern HV500 myHV500;
 
 typedef struct {
+    uint8_t mission_select;
+    uint16_t target_rpm;
+    uint8_t state;
+    // Add other needed autonomous system parameters
+    uint8_t ready_to_drive_ad;
+} AS_System_t;
+extern AS_System_t as_system;
+
+typedef struct {
+    uint8_t mission_select;
+    uint8_t ignition_ad;
+    uint8_t ASMS;
+} ACU_t;
+extern ACU_t acu;
+
+typedef struct {
+    uint8_t signal;
+} RES_t;
+extern RES_t res;
+
+typedef struct {
     uint16_t instant_voltage;
     uint16_t open_voltage;
     uint8_t soc;
@@ -86,6 +109,7 @@ typedef struct {
     uint8_t ambient_temp;
 
     uint16_t max_discharge_current;
+    uint8_t precharge_circuit_state;
 
 } BMSvars_t;
 extern BMSvars_t bms;
@@ -185,10 +209,16 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
 
 /* Autonomous bus functions */
-void can_bus_send_AdBus_RPM(uint32_t rpm, CAN_HandleTypeDef *hcan);
 
-/* Heartbeat functions */
-void send_vcu_heartbeat(CAN_HandleTypeDef *hcan);
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint16_t rpm);
+
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state);
+
+void can_bus_read_ASDB(CAN_HandleTypeDef *hcan);
+
+void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
 /**
  * @brief CAN mailbox used for transmitting messages

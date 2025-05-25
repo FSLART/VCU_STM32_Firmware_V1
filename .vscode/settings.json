@@ -8,7 +8,9 @@
         "can_pwtdb.h": "c",
         "main.h": "c",
         "stm32f7xx_hal_cortex.h": "c",
-        "can_datadb.h": "c"
+        "can_datadb.h": "c",
+        "autonomous_temporary.h": "c",
+        "limits": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

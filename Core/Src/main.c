@@ -18,13 +18,12 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-
 #include "adc.h"
 #include "can.h"
 #include "dma.h"
-#include "gpio.h"
 #include "tim.h"
 #include "usart.h"
+#include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -38,9 +37,9 @@
 
 #define CALIBRATE_APPS 0
 
-#define print_state 1
+#define print_state 0
 #define print_variables 0
-#define print_apps 1
+#define print_apps 0
 
 #define CAN_DATA_BUS &hcan1
 #define CAN_POWERTRAIN_BUS &hcan2
@@ -48,9 +47,11 @@
 
 /* BYPASS VARIABLES*/
 #define Bypass_brake_pressure 1
-#define Bypass_precharge 1
+#define Bypass_precharge 0
 
 #define BRAKE_PRESSURE_THRESHOLD 10  // Minimum brake pressure (bar) required for R2D
+
+#define MAX_RPM_AD 1500
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
@@ -107,7 +108,12 @@ volatile bool can3_rx_flag = false;
 
 APPS_Result_t result = {0};  // Result structure for APPS processing
 
+// vars on can utils file
 HV500 myHV500;
+AS_System_t as_system;
+ACU_t acu;
+RES_t res;
+BMSvars_t bms;
 
 /* -------------------- STATE MACHINE DEFINITIONS -------------------- */
 // VCU state enumeration
@@ -213,6 +219,62 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+void CAN1_Filter_Config(void) {
+    CAN_FilterTypeDef canfilterconfig;
+
+    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
+    canfilterconfig.FilterBank = 0;
+    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
+    canfilterconfig.FilterIdLow = 0x0000;
+    canfilterconfig.FilterMaskIdHigh = 0x0000;
+    canfilterconfig.FilterMaskIdLow = 0x0000;
+    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
+    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
+
+    if (HAL_CAN_ConfigFilter(&hcan1, &canfilterconfig) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
+void CAN2_Filter_Config(void) {
+    CAN_FilterTypeDef canfilterconfig;
+
+    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
+    canfilterconfig.FilterBank = 14;
+    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
+    canfilterconfig.FilterIdLow = 0x0000;
+    canfilterconfig.FilterMaskIdHigh = 0x0000;
+    canfilterconfig.FilterMaskIdLow = 0x0000;
+    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
+    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
+
+    if (HAL_CAN_ConfigFilter(&hcan2, &canfilterconfig) != HAL_OK) {
+        Error_Handler();
+    }
+}
+
+void CAN3_Filter_Config(void) {
+    CAN_FilterTypeDef canfilterconfig;
+
+    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
+    canfilterconfig.FilterBank = 0;
+    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
+
+    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
+    canfilterconfig.FilterIdLow = 0x0000;
+    canfilterconfig.FilterMaskIdHigh = 0x0000;
+    canfilterconfig.FilterMaskIdLow = 0x0000;
+
+    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
+    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
+
+    if (HAL_CAN_ConfigFilter(&hcan3, &canfilterconfig) != HAL_OK) {
+        Error_Handler();
+    }
+}
 
 /* -------------------- SENSOR FUNCTIONS -------------------- */
 /**
@@ -596,7 +658,7 @@ void ResetEmergencySound(void) {
  * @details Sounds the buzzer with required pattern if an emergency stop is detected
  */
 void HandleEmergencyStop(void) {
-    if (vcu.AS_emergency) {
+    if ((as_system.state == 4) || res.signal == 0) {
         // Start emergency sound if not already playing or completed
         if (!vcu.emergency_sound_playing && !vcu.emergency_sound_completed) {
             StartEmergencySound();
@@ -631,9 +693,9 @@ void UpdateState(void) {
     previous_state = current_state;
 
     // Process emergency condition with highest priority
-    if (vcu.AS_emergency && current_state != STATE_AS_EMERGENCY) {
+    if (((as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
-        return;  // Exit early - emergency takes precedence
+        // return;  // Exit early - emergency takes precedence
     }
 
     // Read raw button state
@@ -651,7 +713,7 @@ void UpdateState(void) {
     vcu.r2d_button_signal = current_r2d_button;
 
     vcu.ignition_switch_signal = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
-    vcu.ignition_ad = 0;
+    vcu.ignition_ad = acu.ignition_ad;  // Read ignition signal from autonomous system
 
     // State transitions
     switch (current_state) {
@@ -660,12 +722,11 @@ void UpdateState(void) {
             break;
         case STATE_STANDBY:
             // if precharge is request either for manual or autonomous mode start the precharge
-
             if (vcu.ignition_switch_signal) {
                 current_state = STATE_PRECHARGE;  // Transition to precharge state
                 vcu.manual = true;                // Set manual mode
                 vcu.autonomous = false;           // Clear autonomous mode
-            } else if (vcu.ignition_ad) {
+            } else if (vcu.ignition_ad && acu.ASMS) {
                 current_state = STATE_PRECHARGE;  // Transition to precharge state
                 vcu.manual = false;               // Clear manual mode
                 vcu.autonomous = true;            // Set autonomous mode
@@ -674,14 +735,14 @@ void UpdateState(void) {
 
         case STATE_PRECHARGE:
             // when the precharge is done, wait for the ready to drive signal to start the ready to drive
-            // either from manual or autonomous mode
+            // either from manual or autonomous mode-
 
             // Check if precharge is complete
             // TODO fazer a diferenca entre a tensao do inversor e do bms e ver se esta a 90% reais
 
             if (!vcu.ignition_switch_signal && !vcu.ignition_ad) {
                 current_state = STATE_STANDBY;
-            } else if (Bypass_precharge || vcu.precharge_signal || myHV500.Actual_InputVoltage > 450) {
+            } else if (Bypass_precharge || (bms.precharge_circuit_state == 9) || myHV500.Actual_InputVoltage > 450) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
 
@@ -699,7 +760,7 @@ void UpdateState(void) {
         case STATE_WAITING_FOR_R2D_AUTO:
             if (!vcu.ignition_ad) {
                 current_state = STATE_STANDBY;
-            } else if (vcu.r2d_autonomous_signal) {
+            } else if (as_system.state == 3) {  // driving state
                 current_state = STATE_READY_AUTONOMOUS;
             }
             break;
@@ -720,14 +781,21 @@ void UpdateState(void) {
 
             if (!vcu.ignition_ad) {
                 current_state = STATE_STANDBY;
-            } else if (!vcu.r2d_autonomous_signal) {
+            } else if (as_system.state != 3) {
                 current_state = STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
 
         case STATE_AS_EMERGENCY:
-            // if the emergency is detected, sound the buzzer
             // TODO fazer isto verificar com os autonomos e o bruno
+            // printf("\n\rAS Emergency: %d\n\r", as_system.state);
+
+            if (vcu.ignition_ad == false) {
+                current_state = STATE_STANDBY;
+            } else if (as_system.state != 4 && res.signal != 0) {
+                current_state = STATE_STANDBY;
+            }
+
             break;
     }
 
@@ -791,6 +859,7 @@ void UpdateState(void) {
 
             case STATE_AS_EMERGENCY:
                 // Emergency entry actions
+                HAL_GPIO_WritePin(GPIOB, dout1_BMS_IGN_Pin, GPIO_PIN_RESET);
                 // HAL_GPIO_WritePin(GPIOB, dout1_BMS_IGN_Pin, !GPIO_PIN_RESET);
                 //__HAL_TIM_SetCompare(&htim4, TIM_CHANNEL_1, 0);  // Set PWM to 0% duty cycle
                 // HAL_TIM_PWM_Stop(&htim4, TIM_CHANNEL_1);         // Stop PWM for R2D LED
@@ -855,12 +924,22 @@ void HandleState(void) {
             static uint32_t last_can_send_time_auto = 0;
             uint32_t current_time_auto = HAL_GetTick();
 
-            if (current_time_auto - last_can_send_time_auto >= 5) {
-                can_bus_send_HV500_SetDriveEnable(1, &hcan3);
-                // TODO: need to reveive the rpm from the pc
-                // can_bus_send_HV500_SetERPM(result.percentage_1000, &hcan3);
-                can_bus_send_AdBus_RPM(myHV500.Actual_ERPM, &hcan3);
+            if (current_time_auto - last_can_send_time_auto >= 10) {
+                can_bus_send_HV500_SetDriveEnable(1, &hcan2);
+
+                if (as_system.target_rpm > MAX_RPM_AD) {
+                    as_system.target_rpm = MAX_RPM_AD;
+                } else if (as_system.target_rpm < 0) {
+                    as_system.target_rpm = 0;
+                }
+
+                uint32_t erpm = as_system.target_rpm * 10;
+                can_bus_send_HV500_SetERPM(erpm, &hcan2);
+                can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM / 10);
                 last_can_send_time_auto = current_time_auto;
+
+                // printf("\n\rRPM: %d\n\r", myHV500.Actual_ERPM / 10);
+                // printf("\n\rTarget RPM: %d\n\r", as_system.target_rpm);
             }
             break;
 
@@ -873,39 +952,6 @@ void HandleState(void) {
 }
 
 /* -------------------- COMMUNICATION FUNCTIONS -------------------- */
-/**
- * @brief CAN RX FIFO0 message pending callback
- * @param hcan Pointer to CAN handle
- */
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, RxData) != HAL_OK) {
-        Error_Handler();
-        if (hcan->Instance == CAN1) {
-            can_data1.id = RxHeader.StdId;
-            can_data1.length = RxHeader.DLC;
-            for (int i = 0; i < RxHeader.DLC; i++) {
-                can_data1.message[i] = RxData[i];
-            }
-            can1_rx_flag = true;
-
-        } else if (hcan->Instance == CAN2) {
-            can_data2.id = RxHeader.StdId;
-            can_data2.length = RxHeader.DLC;
-            for (int i = 0; i < RxHeader.DLC; i++) {
-                can_data2.message[i] = RxData[i];
-            }
-            can2_rx_flag = true;
-
-        } else if (hcan->Instance == CAN3) {
-            can_data3.id = RxHeader.StdId;
-            can_data3.length = RxHeader.DLC;
-            for (int i = 0; i < RxHeader.DLC; i++) {
-                can_data3.message[i] = RxData[i];
-            }
-            can3_rx_flag = true;
-        }
-    }
-}
 
 /**
  * @brief Redirect printf to UART
@@ -917,88 +963,98 @@ PUTCHAR_PROTOTYPE {
 
     return ch;
 }
+
 /* USER CODE END 0 */
 
 /**
- * @brief  The application entry point.
- * @retval int
- */
-int main(void) {
-    /* USER CODE BEGIN 1 */
+  * @brief  The application entry point.
+  * @retval int
+  */
+int main(void)
+{
+
+  /* USER CODE BEGIN 1 */
     current_state = STATE_INIT;
-    /* USER CODE END 1 */
+  /* USER CODE END 1 */
 
-    /* MPU Configuration--------------------------------------------------------*/
-    MPU_Config();
+  /* MPU Configuration--------------------------------------------------------*/
+  MPU_Config();
 
-    /* Enable the CPU Cache */
+  /* Enable the CPU Cache */
 
-    /* Enable I-Cache---------------------------------------------------------*/
-    SCB_EnableICache();
+  /* Enable I-Cache---------------------------------------------------------*/
+  SCB_EnableICache();
 
-    /* Enable D-Cache---------------------------------------------------------*/
-    SCB_EnableDCache();
+  /* Enable D-Cache---------------------------------------------------------*/
+  SCB_EnableDCache();
 
-    /* MCU Configuration--------------------------------------------------------*/
+  /* MCU Configuration--------------------------------------------------------*/
 
-    /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
-    HAL_Init();
+  /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
+  HAL_Init();
 
-    /* USER CODE BEGIN Init */
+  /* USER CODE BEGIN Init */
 
     // HAL_ADC_Start_DMA(&hadc3, (uint32_t *)&adc_buffer, 5);
 
     // HAL_ADC_Start(&hadc3);
 
-    /* USER CODE END Init */
+  /* USER CODE END Init */
 
-    /* Configure the system clock */
-    SystemClock_Config();
+  /* Configure the system clock */
+  SystemClock_Config();
 
-    /* USER CODE BEGIN SysInit */
+  /* USER CODE BEGIN SysInit */
 
-    /* USER CODE END SysInit */
+  /* USER CODE END SysInit */
 
-    /* Initialize all configured peripherals */
-    MX_GPIO_Init();
-    MX_DMA_Init();
-    MX_USART1_UART_Init();
-    MX_ADC3_Init();
-    MX_CAN1_Init();
-    MX_ADC1_Init();
-    MX_ADC2_Init();
-    MX_CAN2_Init();
-    MX_CAN3_Init();
-    MX_TIM4_Init();
-    /* USER CODE BEGIN 2 */
+  /* Initialize all configured peripherals */
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USART1_UART_Init();
+  MX_ADC3_Init();
+  MX_CAN1_Init();
+  MX_ADC1_Init();
+  MX_ADC2_Init();
+  MX_CAN2_Init();
+  MX_CAN3_Init();
+  MX_TIM4_Init();
+  /* USER CODE BEGIN 2 */
 
-    HAL_CAN_Start(&hcan1);
+    // Configure filters with different banks
+    CAN1_Filter_Config();
+    CAN2_Filter_Config();
+    CAN3_Filter_Config();
+
+    // Enable interrupts for all
     if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
         Error_Handler();
     }
-    HAL_CAN_Start(&hcan2);
     if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
         Error_Handler();
     }
-    HAL_CAN_Start(&hcan3);
     if (HAL_CAN_ActivateNotification(&hcan3, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
         Error_Handler();
     }
 
+    HAL_CAN_Start(&hcan1);
+    HAL_CAN_Start(&hcan2);
+    HAL_CAN_Start(&hcan3);
+
     startup_leds_animation();
     MovingAverage_Init();  // Initialize moving average buffers
 
-    /* USER CODE END 2 */
+  /* USER CODE END 2 */
 
-    /* Infinite loop */
-    /* USER CODE BEGIN WHILE */
+  /* Infinite loop */
+  /* USER CODE BEGIN WHILE */
 
     // HAL_ADC_Start_DMA(&hadc1, ADC1_VAL, 4);
     HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
                                               // Calibrate APPS
 
     APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
-
+    res.signal = 11;                                                              // start with a value different than 0 to avoid emergency state
     printf("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
 
 #if CALIBRATE_APPS
@@ -1006,19 +1062,54 @@ int main(void) {
 #endif
 
     while (1) {
-        /* USER CODE END WHILE */
-        
-        /* USER CODE BEGIN 3 */
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
         heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
+
+        if (HAL_CAN_GetRxFifoFillLevel(&hcan3, CAN_RX_FIFO0) > 0) {
+            CAN_RxHeaderTypeDef RxHeader;
+            uint8_t RxData[8];
+            if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+                decode_auto_bus(RxHeader, RxData);
+            }
+        }
+
+        if (HAL_CAN_GetRxFifoFillLevel(&hcan2, CAN_RX_FIFO0) > 0) {
+            CAN_RxHeaderTypeDef RxHeader2;
+            uint8_t RxData2[8];
+            if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
+                can_filter_id_bus2(RxHeader2, RxData2);
+            }
+        }
+
+        // if (HAL_CAN_GetRxFifoFillLevel(&hcan2, CAN_RX_FIFO0) > 0) {
+        //     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+        //         // decode_auto_bus(RxHeader, RxData);
+        //     }
+        // }
+        // if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0) > 0) {
+        //     if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+        //         // decode_auto_bus(RxHeader, RxData);
+        //     }
+        // }
 
         static uint32_t previous_tick = 0;
         uint32_t current_tick = HAL_GetTick();
-        if (current_tick - previous_tick >= 100) {
-            // print the apps_funtion values
+        if (current_tick - previous_tick >= 200) {
+            // can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
+            uint8_t data[8] = {0};
+            CAN_TxHeaderTypeDef TxHeader;
+            TxHeader.StdId = 0x410;
+            TxHeader.ExtId = 0;
+            TxHeader.RTR = CAN_RTR_DATA;
+            TxHeader.IDE = CAN_ID_STD;
+            TxHeader.DLC = 8;
+            TxHeader.TransmitGlobalTime = DISABLE;
 
-            send_vcu_heartbeat(&hcan1);
-            send_vcu_heartbeat(&hcan2);
-            send_vcu_heartbeat(&hcan3);
+            uint32_t TxMailbox;
+
+            HAL_CAN_AddTxMessage(&hcan3, &TxHeader, data, &TxMailbox);
 
             result = APPS_Process(apps2_avg, apps1_avg);
 
@@ -1039,6 +1130,7 @@ int main(void) {
 #endif
 
             vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+            // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
 
             previous_tick = current_tick;
         }
@@ -1055,114 +1147,123 @@ int main(void) {
         // Execute state-specific actions
         HandleState();
     }
-    /* USER CODE END 3 */
+  /* USER CODE END 3 */
 }
 
 /**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void) {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
-    /** Configure the main internal regulator output voltage
-     */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_RCC_PWR_CLK_ENABLE();
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
 
-    /** Initializes the RCC Oscillators according to the specified parameters
-     * in the RCC_OscInitTypeDef structure.
-     */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-    RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-    RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-    RCC_OscInitStruct.PLL.PLLM = 8;
-    RCC_OscInitStruct.PLL.PLLN = 216;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = 2;
-    RCC_OscInitStruct.PLL.PLLR = 2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        Error_Handler();
-    }
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLN = 216;
+  RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+  RCC_OscInitStruct.PLL.PLLQ = 2;
+  RCC_OscInitStruct.PLL.PLLR = 2;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-    /** Activate the Over-Drive mode
-     */
-    if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
-        Error_Handler();
-    }
+  /** Activate the Over-Drive mode
+  */
+  if (HAL_PWREx_EnableOverDrive() != HAL_OK)
+  {
+    Error_Handler();
+  }
 
-    /** Initializes the CPU, AHB and APB buses clocks
-     */
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
-        Error_Handler();
-    }
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
 /* USER CODE BEGIN 4 */
 
 /* USER CODE END 4 */
 
-/* MPU Configuration */
+ /* MPU Configuration */
 
-void MPU_Config(void) {
-    MPU_Region_InitTypeDef MPU_InitStruct = {0};
+void MPU_Config(void)
+{
+  MPU_Region_InitTypeDef MPU_InitStruct = {0};
 
-    /* Disables the MPU */
-    HAL_MPU_Disable();
+  /* Disables the MPU */
+  HAL_MPU_Disable();
 
-    /** Initializes and configures the Region and the memory to be protected
-     */
-    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-    MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-    MPU_InitStruct.BaseAddress = 0x30000000;
-    MPU_InitStruct.Size = MPU_REGION_SIZE_32B;
-    MPU_InitStruct.SubRegionDisable = 0x0;
-    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-    MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+  /** Initializes and configures the Region and the memory to be protected
+  */
+  MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+  MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+  MPU_InitStruct.BaseAddress = 0x30000000;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_32B;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
-    HAL_MPU_ConfigRegion(&MPU_InitStruct);
-    /* Enables the MPU */
-    HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+  HAL_MPU_ConfigRegion(&MPU_InitStruct);
+  /* Enables the MPU */
+  HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
+
 }
 
 /**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
-void Error_Handler(void) {
-    /* USER CODE BEGIN Error_Handler_Debug */
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
+{
+  /* USER CODE BEGIN Error_Handler_Debug */
     /* User can add his own implementation to report the HAL error return state */
     __disable_irq();
     while (1) {
     }
-    /* USER CODE END Error_Handler_Debug */
+  /* USER CODE END Error_Handler_Debug */
 }
 
-#ifdef USE_FULL_ASSERT
+#ifdef  USE_FULL_ASSERT
 /**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line) {
-    /* USER CODE BEGIN 6 */
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(uint8_t *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line number,
        ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-    /* USER CODE END 6 */
+  /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
