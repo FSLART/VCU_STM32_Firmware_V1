@@ -387,9 +387,9 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
     autonomous_temporary_vcu_hv_init(&hv_signal_msg);
     hv_signal_msg.hv = hv_state;  // Set the HV state
     autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
-    // can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    can_bus_send(hcan, 0x100, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    //  can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    // can_bus_send(hcan, 0x100, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    //    can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
 }
 
 /**

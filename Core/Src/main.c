@@ -695,22 +695,7 @@ void UpdateState(void) {
     // Process emergency condition with highest priority
     if (((as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
-        // return;  // Exit early - emergency takes precedence
     }
-
-    // Read raw button state
-    bool current_r2d_button = HAL_GPIO_ReadPin(int2_r2d_GPIO_Port, int2_r2d_Pin);
-
-    // Detect rising edge (button press) for toggle behavior
-    if (current_r2d_button && !vcu.r2d_button_prev) {
-        vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;  // Toggle on button press
-    }
-
-    // Store current button state for next iteration
-    vcu.r2d_button_prev = current_r2d_button;
-
-    // Also store the raw button signal for any code that still needs it
-    vcu.r2d_button_signal = current_r2d_button;
 
     vcu.ignition_switch_signal = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
     vcu.ignition_ad = acu.ignition_ad;  // Read ignition signal from autonomous system
@@ -745,7 +730,6 @@ void UpdateState(void) {
             } else if (Bypass_precharge || (bms.precharge_circuit_state == 9) || myHV500.Actual_InputVoltage > 450) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
-
             break;
 
         case STATE_WAITING_FOR_R2D_MANUAL:
@@ -813,6 +797,13 @@ void UpdateState(void) {
                 // Reset critical flags when entering standby
                 vcu.manual = false;
                 vcu.autonomous = false;
+
+                memset(&vcu, 0, sizeof(VCU_Signals_t));      // Reset all VCU signals
+                memset(&as_system, 0, sizeof(AS_System_t));  // Reset autonomous system state
+                memset(&acu, 0, sizeof(ACU_t));              // Reset ACU state
+                // memset(&res, 0, sizeof(RES_t));              // Reset RES state
+                // memset(&bms, 0, sizeof(BMSvars_t));  // Reset BMS variables
+                memset(&myHV500, 0, sizeof(HV500));  // Reset HV500 variables
 
                 vcu.r2d_button_signal = false;      // Reset R2D button signal
                 vcu.r2d_toggle_signal = false;      // Reset R2D toggle signal
@@ -951,6 +942,41 @@ void HandleState(void) {
     }
 }
 
+// Time-based debounce for R2D button
+void debounce_r2d_button(void) {
+    static uint32_t last_debounce_time = 0;
+    static bool last_reading = false;
+    static bool stable_state = false;
+
+    bool current_reading = HAL_GPIO_ReadPin(int2_r2d_GPIO_Port, int2_r2d_Pin);
+
+    // If state changed, reset debounce timer
+    if (current_reading != last_reading) {
+        last_debounce_time = HAL_GetTick();
+    }
+
+    // State is considered stable if it's been the same for the debounce delay
+    if ((HAL_GetTick() - last_debounce_time) > 50) {  // 50ms debounce time
+        // Only process state change when it's stable and different from previous
+        if (current_reading != stable_state) {
+            stable_state = current_reading;
+
+            // Process rising edge (button press)
+            if (stable_state && !vcu.r2d_button_prev) {
+                vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
+            }
+
+            vcu.r2d_button_prev = stable_state;
+        }
+    }
+
+    // Save the reading for next comparison
+    last_reading = current_reading;
+
+    // Update raw signal for any code that needs it
+    vcu.r2d_button_signal = stable_state;
+}
+
 /* -------------------- COMMUNICATION FUNCTIONS -------------------- */
 
 /**
@@ -1013,12 +1039,12 @@ int main(void)
   MX_DMA_Init();
   MX_USART1_UART_Init();
   MX_ADC3_Init();
-  MX_CAN1_Init();
   MX_ADC1_Init();
   MX_ADC2_Init();
-  MX_CAN2_Init();
   MX_CAN3_Init();
   MX_TIM4_Init();
+  MX_CAN1_Init();
+  MX_CAN2_Init();
   /* USER CODE BEGIN 2 */
 
     // Configure filters with different banks
@@ -1054,7 +1080,7 @@ int main(void)
                                               // Calibrate APPS
 
     APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
-    res.signal = 11;                                                              // start with a value different than 0 to avoid emergency state
+    res.signal = 12;                                                              // start with a value different than 0 to avoid emergency state
     printf("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
 
 #if CALIBRATE_APPS
@@ -1083,24 +1109,14 @@ int main(void)
             }
         }
 
-        // if (HAL_CAN_GetRxFifoFillLevel(&hcan2, CAN_RX_FIFO0) > 0) {
-        //     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-        //         // decode_auto_bus(RxHeader, RxData);
-        //     }
-        // }
-        // if (HAL_CAN_GetRxFifoFillLevel(&hcan1, CAN_RX_FIFO0) > 0) {
-        //     if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-        //         // decode_auto_bus(RxHeader, RxData);
-        //     }
-        // }
-
         static uint32_t previous_tick = 0;
         uint32_t current_tick = HAL_GetTick();
         if (current_tick - previous_tick >= 200) {
-            // can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
+            can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
+
             uint8_t data[8] = {0};
             CAN_TxHeaderTypeDef TxHeader;
-            TxHeader.StdId = 0x410;
+            TxHeader.StdId = 0x69;
             TxHeader.ExtId = 0;
             TxHeader.RTR = CAN_RTR_DATA;
             TxHeader.IDE = CAN_ID_STD;
@@ -1109,7 +1125,7 @@ int main(void)
 
             uint32_t TxMailbox;
 
-            HAL_CAN_AddTxMessage(&hcan3, &TxHeader, data, &TxMailbox);
+            HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
 
             result = APPS_Process(apps2_avg, apps1_avg);
 
@@ -1141,6 +1157,9 @@ int main(void)
         // Check for CAN timeouts
         // CheckCANTimeouts();
 
+        // Handle R2D button debounce
+        debounce_r2d_button();
+
         // Update state based on inputs
         UpdateState();
 
@@ -1167,12 +1186,11 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
-  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
-  RCC_OscInitStruct.PLL.PLLM = 8;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLM = 4;
   RCC_OscInitStruct.PLL.PLLN = 216;
   RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
   RCC_OscInitStruct.PLL.PLLQ = 2;
