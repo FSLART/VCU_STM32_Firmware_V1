@@ -59,14 +59,12 @@ void Error_Handler(void);
 /* Private defines -----------------------------------------------------------*/
 #define adc1_in1_brake_pressure_Pin GPIO_PIN_1
 #define adc1_in1_brake_pressure_GPIO_Port GPIOA
-#define APPS1_Signal_Pin GPIO_PIN_5
-#define APPS1_Signal_GPIO_Port GPIOA
-#define APPS2_Signal_Pin GPIO_PIN_6
-#define APPS2_Signal_GPIO_Port GPIOA
 #define int1_ign_Pin GPIO_PIN_7
 #define int1_ign_GPIO_Port GPIOA
 #define int2_r2d_Pin GPIO_PIN_4
 #define int2_r2d_GPIO_Port GPIOC
+#define int3_shutdown_signal_Pin GPIO_PIN_0
+#define int3_shutdown_signal_GPIO_Port GPIOB
 #define dout3_Water_Pump_Pin GPIO_PIN_14
 #define dout3_Water_Pump_GPIO_Port GPIOD
 #define dout4_R2D_Buzzer_Pin GPIO_PIN_15

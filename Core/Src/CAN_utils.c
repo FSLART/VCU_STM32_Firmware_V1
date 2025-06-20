@@ -279,6 +279,18 @@ void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hca
     can_bus_send(hcan, data.id, data.message, data.length);
 }
 
+void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan) {
+    can_data_t data;
+    data.id = 0x83;
+    data.length = 1;
+
+    memset(data.message, 0x00, sizeof(data.message));
+
+    data.message[0] = precharge_state;
+
+    can_bus_send(hcan, data.id, data.message, data.length);
+}
+
 /*
 =========================================================
                 POWERTRAIN DECODE
@@ -369,6 +381,7 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint16_t rpm) {
     struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
     autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
+    vcu_rpm_msg.rpm = 0;  // Initialize RPM to 0
     // rpm = rpm / 10;
     vcu_rpm_msg.rpm = rpm;  // Set the RPM value
     autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
@@ -384,12 +397,15 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint16_t rpm) {
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
     struct autonomous_temporary_vcu_hv_t hv_signal_msg;
     uint8_t data[8];
-    autonomous_temporary_vcu_hv_init(&hv_signal_msg);
-    hv_signal_msg.hv = hv_state;  // Set the HV state
-    autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
-    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    data[0] = hv_state;
+    data[1] = 0;
+    data[2] = 0;
+    // autonomous_temporary_vcu_hv_init(&hv_signal_msg);
+    // hv_signal_msg.hv = hv_state;  // Set the HV state
+    // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
+    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
     // can_bus_send(hcan, 0x100, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    //    can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    // can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
 }
 
 /**
@@ -403,43 +419,51 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
         case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
             struct autonomous_temporary_acu_ms_t acu_ms;
             autonomous_temporary_acu_ms_init(&acu_ms);
+            acu_ms.mission_select = 0;
             autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
             acu.mission_select = acu_ms.mission_select;
             break;
         case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
             struct autonomous_temporary_acu_ign_t acu_ign;
             autonomous_temporary_acu_ign_init(&acu_ign);
+            acu_ign.ign = 0;
             autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
             acu.ignition_ad = acu_ign.ign;
             acu.ASMS = acu_ign.asms;
+            acu.is_in_emergency = acu_ign.emergency;
             break;
         case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
             struct autonomous_temporary_jetson_ms_t jetson_ms;
             autonomous_temporary_jetson_ms_init(&jetson_ms);
+            jetson_ms.mission_select = 0;
             autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
             as_system.mission_select = jetson_ms.mission_select;
             break;
         case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
             struct autonomous_temporary_rd_jetson_t rd_jetson;
             autonomous_temporary_rd_jetson_init(&rd_jetson);
+            rd_jetson.rd = 0;
             autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
             as_system.ready_to_drive_ad = rd_jetson.rd;
             break;
         case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
             struct autonomous_temporary_res_t res_ad;
             autonomous_temporary_res_init(&res_ad);
+            res_ad.signal = 0;
             autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
             res.signal = res_ad.signal;
             break;
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
             struct autonomous_temporary_target_rpm_t target_rpm;
             autonomous_temporary_target_rpm_init(&target_rpm);
+            target_rpm.rpm = 0;
             autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
             as_system.target_rpm = target_rpm.rpm;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
             autonomous_temporary_as_state_init(&as_state);
+            as_state.state = 0;
             autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
             as_system.state = as_state.state;
             break;

@@ -67,28 +67,45 @@ typedef struct {
     uint16_t SetMaxDCBrakeCurrent;
     uint8_t DriveEnable;
 } HV500;
-extern HV500 myHV500;
+extern volatile HV500 myHV500;
+
+typedef enum {
+    AS_STATE_OFF = 1,    // System is off or not initialized
+    AS_STATE_READY = 2,  // System is ready to engage autonomous mode
+    AS_STATE_DRIVING = 3,
+    AS_STATE_EMERGENCY = 4,  // System is in emergency state
+    AS_STATE_FINISHED = 5,   // Mission or task completed
+} AS_State_t;
 
 typedef struct {
     uint8_t mission_select;
     uint16_t target_rpm;
-    uint8_t state;
-    // Add other needed autonomous system parameters
+    // uint8_t state;
+    AS_State_t state;
     uint8_t ready_to_drive_ad;
 } AS_System_t;
-extern AS_System_t as_system;
+extern volatile AS_System_t as_system;
 
 typedef struct {
     uint8_t mission_select;
     uint8_t ignition_ad;
     uint8_t ASMS;
+    bool is_in_emergency;
 } ACU_t;
-extern ACU_t acu;
+extern volatile ACU_t acu;
 
+typedef enum {
+    RES_SIGNAL_EMERGENCY = 0,
+    RES_SIGNAl_DEFAULT_1 = 1,
+    RES_SIGNAl_DEFAULT_2 = 3,
+    RES_SIGNAL_R2D_1 = 5,
+    RES_SIGNAL_R2D_2 = 7
+} Res_Signal_t;
 typedef struct {
-    uint8_t signal;
+    Res_Signal_t signal;  // Current signal state
+    // uint8_t signal;
 } RES_t;
-extern RES_t res;
+extern volatile RES_t res;
 
 typedef struct {
     uint16_t instant_voltage;
@@ -112,7 +129,7 @@ typedef struct {
     uint8_t precharge_circuit_state;
 
 } BMSvars_t;
-extern BMSvars_t bms;
+extern volatile BMSvars_t bms;
 
 /**
  * @brief Sends a CAN message
@@ -207,6 +224,8 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
  * @param hcan CAN handle
  */
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
+
+void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan);
 
 /* Autonomous bus functions */
 
