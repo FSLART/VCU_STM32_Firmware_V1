@@ -229,19 +229,45 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 
 /* Autonomous bus functions */
 
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint16_t rpm);
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm);
 
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state);
 
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan);
-
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
-
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+/* CAN Bus Processing Functions */
 
 /**
- * @brief CAN mailbox used for transmitting messages
+ * @brief Processes data bus (CAN1) messages
+ * @param RxHeader CAN message header with ID and metadata
+ * @param data CAN message data payload (8 bytes)
  */
-extern uint32_t TxMailbox;
+void decode_DATA_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+
+/**
+ * @brief Processes autonomous system bus (CAN3) messages
+ * @param RxHeader CAN message header with ID and metadata
+ * @param data CAN message data payload (8 bytes)
+ */
+void decode_AS_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+
+/**
+ * @brief Processes autonomous bus messages (CAN3)
+ * @param RxHeader CAN message header with ID and metadata
+ * @param data CAN message data payload (8 bytes)
+ */
+void decode_AUTO_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+
+/**
+ * @brief Processes powertrain bus messages (CAN2)
+ * @param RxHeader CAN message header with ID and metadata
+ * @param data CAN message data payload (8 bytes)
+ */
+void decode_PWT_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+
+void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal);
+
+    /**
+     * @brief CAN mailbox used for transmitting messages
+     */
+    extern uint32_t TxMailbox;
 
 #endif /* CAN_UTILS_H */

@@ -7,6 +7,7 @@
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
 #include "autonomous_temporary.h"
+#include "data_dbc.h"
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
@@ -22,94 +23,18 @@ void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t l
     HAL_CAN_AddTxMessage(hcan, &TxHeader, data, &TxMailbox);
 }
 
-// read for multiple can bus
-void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
-    CAN_RxHeaderTypeDef RxHeader;
-    uint8_t data[8];
-
-    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, data);
-
+// Process DATADB messages (header and data already retrieved in callback)
+void decode_DATA_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     switch (RxHeader.StdId) {
+        // Add your data bus message processing here
+        // Example message IDs from CAN_datadb.h:
+        // case CAN_VCU_ID_1:
+        //     // Process VCU message
+        //     break;
+        // case CAN_PDM_ID_1:
+        //     // Process PDM message
+        //     break;
         default:
-            break;
-    }
-}
-
-// Implement can_bus_read_ASDB function to handle messages from autonomous system
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan) {
-    CAN_RxHeaderTypeDef RxHeader;
-    uint8_t data[8];
-
-    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, data);
-
-    switch (RxHeader.StdId) {
-        case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
-            // Handle ACU Mission Select message
-            struct autonomous_temporary_acu_ms_t acu_ms;
-            autonomous_temporary_acu_ms_unpack(&acu_ms, data, sizeof(data));
-            // Store mission select value for later use
-            // E.g.: as_system.mission_select = acu_ms.mission_select;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
-            // Handle Jetson Mission Select message
-            struct autonomous_temporary_jetson_ms_t jetson_ms;
-            autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, sizeof(data));
-            // Store mission select value for later use
-            break;
-
-        case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
-            // Handle Target RPM message from autonomous system
-            struct autonomous_temporary_target_rpm_t target_rpm;
-            autonomous_temporary_target_rpm_unpack(&target_rpm, data, sizeof(data));
-            // Store target RPM for use in autonomous mode
-            // E.g.: as_system.target_rpm = target_rpm.rpm;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
-            // Handle ACU Ignition message
-            struct autonomous_temporary_acu_ign_t acu_ign;
-            autonomous_temporary_acu_ign_unpack(&acu_ign, data, sizeof(data));
-            // Update VCU signals based on ignition state
-            // vcu.ignition_ad = acu_ign.ign;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-            // Handle Ready to Drive signal from Jetson
-            struct autonomous_temporary_rd_jetson_t rd_jetson;
-            autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, sizeof(data));
-            // Update R2D signal from autonomous system
-            // vcu.r2d_autonomous_signal = (rd_jetson.rd > 0) ? true : false;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
-            // Handle Autonomous System State message
-            struct autonomous_temporary_as_state_t as_state;
-            autonomous_temporary_as_state_unpack(&as_state, data, sizeof(data));
-            // Process autonomous system state
-            // E.g.: as_system.state = as_state.state;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
-            // Handle Response message
-            struct autonomous_temporary_res_t res;
-            autonomous_temporary_res_unpack(&res, data, sizeof(data));
-            // Check for emergency signal
-            if (res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_EMERGENCY_CHOICE) {
-                // vcu.AS_emergency = true;
-                // HAL_GPIO_WritePin(LED_DATA_GPIO_Port, LED_DATA_Pin, GPIO_PIN_RESET);
-
-            } else if (res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_CHOICE ||
-                       res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_2_CHOICE) {
-                // vcu.AS_emergency = false;
-
-                // blink data led
-                // HAL_GPIO_WritePin(LED_DATA_GPIO_Port, LED_DATA_Pin, GPIO_PIN_SET);
-            }
-            break;
-
-        default:
-            // Unknown message ID
             break;
     }
 }
@@ -297,7 +222,7 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
+void decode_PWT_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     switch (RxHeader.StdId) {
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
             myHV500.Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
@@ -372,20 +297,26 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
 /*======================================= Autonomous bus =======================================*/
 
 /**
- * @brief Sends rpm to the autonomous system
+ * @brief Sends RPM to the autonomous system
  *
- * @param state The state of the autonomous system
  * @param hcan CAN handle for the VCU bus (CAN3)
+ * @param rpm RPM value to send (0-100 RPM range)
  */
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint16_t rpm) {
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm) {
     struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
+
+    // Initialize the message structure
     autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.rpm = 0;  // Initialize RPM to 0
-    // rpm = rpm / 10;
-    vcu_rpm_msg.rpm = rpm;  // Set the RPM value
-    autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
-    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
+
+    vcu_rpm_msg.rpm = (uint16_t)rpm;
+
+    // Pack the message and check for errors
+    int pack_result = autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
+    if (pack_result > 0) {
+        // Send the message only if packing was successful
+        can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
+    }
 }
 
 /**
@@ -413,62 +344,123 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
  *
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
+void decode_AUTO_DB(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     uint8_t dlc_bits = RxHeader.DLC * 8;
     switch (RxHeader.StdId) {
         case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
             struct autonomous_temporary_acu_ms_t acu_ms;
-            autonomous_temporary_acu_ms_init(&acu_ms);
-            acu_ms.mission_select = 0;
-            autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
-            acu.mission_select = acu_ms.mission_select;
+
+            int unpack_result_ms = autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
+            if (unpack_result_ms == 0) {
+                acu.mission_select = acu_ms.mission_select;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
             struct autonomous_temporary_acu_ign_t acu_ign;
-            autonomous_temporary_acu_ign_init(&acu_ign);
-            acu_ign.ign = 0;
-            autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
-            acu.ignition_ad = acu_ign.ign;
-            acu.ASMS = acu_ign.asms;
-            acu.is_in_emergency = acu_ign.emergency;
+
+            int unpack_result_ign = autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
+            if (unpack_result_ign == 0) {
+                acu.ignition_ad = acu_ign.ign;
+                acu.ASMS = acu_ign.asms;
+                acu.is_in_emergency = acu_ign.emergency;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
             struct autonomous_temporary_jetson_ms_t jetson_ms;
-            autonomous_temporary_jetson_ms_init(&jetson_ms);
-            jetson_ms.mission_select = 0;
-            autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
-            as_system.mission_select = jetson_ms.mission_select;
+
+            int unpack_result_jetson_ms = autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
+            if (unpack_result_jetson_ms == 0) {
+                as_system.mission_select = jetson_ms.mission_select;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
             struct autonomous_temporary_rd_jetson_t rd_jetson;
-            autonomous_temporary_rd_jetson_init(&rd_jetson);
-            rd_jetson.rd = 0;
-            autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
-            as_system.ready_to_drive_ad = rd_jetson.rd;
+
+            int unpack_result_rd = autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
+            if (unpack_result_rd == 0) {
+                as_system.ready_to_drive_ad = rd_jetson.rd;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
             struct autonomous_temporary_res_t res_ad;
-            autonomous_temporary_res_init(&res_ad);
-            res_ad.signal = 0;
-            autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
-            res.signal = res_ad.signal;
+
+            int unpack_result_res = autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
+            if (unpack_result_res == 0) {
+                res.signal = res_ad.signal;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
             struct autonomous_temporary_target_rpm_t target_rpm;
-            autonomous_temporary_target_rpm_init(&target_rpm);
-            target_rpm.rpm = 0;
-            autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
-            as_system.target_rpm = target_rpm.rpm;
+
+            int unpack_result_rpm = autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
+            if (unpack_result_rpm == 0) {
+                as_system.target_rpm = target_rpm.rpm;
+            }
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
-            autonomous_temporary_as_state_init(&as_state);
-            as_state.state = 0;
-            autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
-            as_system.state = as_state.state;
+
+            int unpack_result_state = autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
+            if (unpack_result_state == 0) {
+                as_system.state = as_state.state;
+            }
             break;
 
         default:
             break;
+    }
+}
+
+void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal) {
+    uint8_t data[8];
+
+    // Send VCU_ message (0x20) - APPS and BPS data
+    struct data_dbc_vcu__t vcu_msg;
+    data_dbc_vcu__init(&vcu_msg);
+    vcu_msg.apps = (uint8_t)apps;
+    vcu_msg.bps = (uint8_t)brake;
+    vcu_msg.trgt_power = 0;  // Not provided in parameters
+    vcu_msg.cnsm_power = 0;  // Not provided in parameters
+
+    if (data_dbc_vcu__pack(data, &vcu_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU__FRAME_ID, data, DATA_DBC_VCU__LENGTH);
+    }
+
+    // Send VCU_1 message (0x21) - Temperatures, BMS voltage, SOC
+    struct data_dbc_vcu_1_t vcu1_msg;
+    data_dbc_vcu_1_init(&vcu1_msg);
+    vcu1_msg.inv_temperature = inv_temp;
+    vcu1_msg.motor_temperature = motor_temp;
+    vcu1_msg.bms_voltage = bms_voltage;
+    vcu1_msg.soc_hv = (uint8_t)soc_hv;
+
+    if (data_dbc_vcu_1_pack(data, &vcu1_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_1_FRAME_ID, data, DATA_DBC_VCU_1_LENGTH);
+    }
+
+    // Send VCU_2 message (0x22) - APPS error and other states
+    struct data_dbc_vcu_2_t vcu2_msg;
+    data_dbc_vcu_2_init(&vcu2_msg);
+    vcu2_msg.inv_faults = 0;  // Not provided in parameters
+    vcu2_msg.lmt1 = 0;        // Not provided in parameters
+    vcu2_msg.lmt2 = 0;        // Not provided in parameters
+    vcu2_msg.vcu_state = 0;   // Not provided in parameters
+    vcu2_msg.apps_error = (uint8_t)apps_error;
+    vcu2_msg.power_plan = 0;  // Not provided in parameters
+
+    if (data_dbc_vcu_2_pack(data, &vcu2_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_2_FRAME_ID, data, DATA_DBC_VCU_2_LENGTH);
+    }
+
+    // Send VCU_3 message (0x23) - Inverter voltage, RPM, IGN, R2D
+    struct data_dbc_vcu_3_t vcu3_msg;
+    data_dbc_vcu_3_init(&vcu3_msg);
+    vcu3_msg.inv_voltage = inv_voltage;
+    vcu3_msg.rpm = rpm;
+    vcu3_msg.ign = (uint8_t)ign_signal;
+    vcu3_msg.r2_d = (uint8_t)r2d_signal;
+
+    if (data_dbc_vcu_3_pack(data, &vcu3_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_3_FRAME_ID, data, DATA_DBC_VCU_3_LENGTH);
     }
 }
