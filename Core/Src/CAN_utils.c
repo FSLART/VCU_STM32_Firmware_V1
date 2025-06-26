@@ -378,12 +378,22 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
 void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm) {
+    // Scale down the RPM value
+    rpm = rpm / 10;
+
+    // Clamp to uint16_t range for safety
+    if (rpm > 65535) {
+        rpm = 65535;
+    } else if (rpm < 0) {
+        rpm = 0;
+    }
+
     struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
+
     autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.rpm = 0;  // Initialize RPM to 0
-    // rpm = rpm / 10;
-    vcu_rpm_msg.rpm = (uint16_t)rpm;  // Set the RPM value
+    vcu_rpm_msg.rpm = (uint16_t)rpm;  // Convert long to uint16_t
+
     uint8_t error = autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
     if (error > 0) {
         can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);

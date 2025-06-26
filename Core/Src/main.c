@@ -1038,7 +1038,7 @@ void HandleState(void) {
 
                 uint32_t erpm = as_system.target_rpm * 10;
                 can_bus_send_HV500_SetERPM(erpm, &hcan2);
-                can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM / 10);
+                can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_auto = current_time_auto;
 
