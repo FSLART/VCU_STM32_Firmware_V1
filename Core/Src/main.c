@@ -1110,12 +1110,12 @@ PUTCHAR_PROTOTYPE {
 }
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-    CAN_RxHeaderTypeDef RxHeader1;
-    uint8_t RxData1[8];
+    // CAN_RxHeaderTypeDef RxHeader1;
+    // uint8_t RxData1[8];
     CAN_RxHeaderTypeDef RxHeader2;
     uint8_t RxData2[8];
-    CAN_RxHeaderTypeDef RxHeader3;
-    uint8_t RxData3[8];
+    // CAN_RxHeaderTypeDef RxHeader3;
+    // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
         can_filter_id_bus2(RxHeader2, RxData2);

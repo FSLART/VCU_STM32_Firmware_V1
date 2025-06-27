@@ -10,7 +10,8 @@
         "stm32f7xx_hal_cortex.h": "c",
         "can_datadb.h": "c",
         "autonomous_temporary.h": "c",
-        "limits": "c"
+        "limits": "c",
+        "string.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

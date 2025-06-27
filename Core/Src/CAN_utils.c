@@ -388,16 +388,25 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm) {
         rpm = 0;
     }
 
-    struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
+    /*
+        struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
 
     autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.rpm = (uint16_t)rpm;  // Convert long to uint16_t
+    vcu_rpm_msg.rpm = rpm;  // Convert long to uint16_t
 
     uint8_t error = autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
     if (error > 0) {
         can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
     }
+    */
+    uint16_t rpm_u16 = (uint16_t)rpm;
+    can_data_t data;
+    data.id = 0x510;
+    data.length = 2;
+    data.message[0] = rpm_u16 & 0xFF;         // Low byte (LSB first)
+    data.message[1] = (rpm_u16 >> 8) & 0xFF;  // High byte (MSB second)
+    can_bus_send(hcan, data.id, data.message, data.length);
 }
 
 /**
@@ -416,8 +425,6 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
     // hv_signal_msg.hv = hv_state;  // Set the HV state
     // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
     can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
-    // can_bus_send(hcan, 0x100, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    // can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
 }
 
 /**
