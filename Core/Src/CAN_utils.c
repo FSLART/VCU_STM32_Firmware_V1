@@ -388,16 +388,25 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm) {
         rpm = 0;
     }
 
-    struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
+    /*
+        struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
 
     autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.rpm = (uint16_t)rpm;  // Convert long to uint16_t
+    vcu_rpm_msg.rpm = rpm;  // Convert long to uint16_t
 
     uint8_t error = autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
     if (error > 0) {
         can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
     }
+    */
+    uint16_t rpm_u16 = (uint16_t)rpm;
+    can_data_t data;
+    data.id = 0x510;
+    data.length = 2;
+    data.message[0] = rpm_u16 & 0xFF;         // Low byte (LSB first)
+    data.message[1] = (rpm_u16 >> 8) & 0xFF;  // High byte (MSB second)
+    can_bus_send(hcan, data.id, data.message, data.length);
 }
 
 /**
@@ -416,8 +425,6 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
     // hv_signal_msg.hv = hv_state;  // Set the HV state
     // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
     can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
-    // can_bus_send(hcan, 0x100, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    // can_bus_send(hcan, 0x420, data, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
 }
 
 /**
@@ -482,5 +489,59 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
 
         default:
             break;
+    }
+}
+
+void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal) {
+    uint8_t data[8];
+
+    // Send VCU_ message (0x20) - APPS and BPS data
+    struct data_dbc_vcu__t vcu_msg;
+    data_dbc_vcu__init(&vcu_msg);
+    vcu_msg.apps = (uint8_t)apps;
+    vcu_msg.bps = (uint8_t)brake;
+    vcu_msg.trgt_power = 0;  // Not provided in parameters
+    vcu_msg.cnsm_power = 0;  // Not provided in parameters
+
+    if (data_dbc_vcu__pack(data, &vcu_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU__FRAME_ID, data, DATA_DBC_VCU__LENGTH);
+    }
+
+    // Send VCU_1 message (0x21) - Temperatures, BMS voltage, SOC
+    struct data_dbc_vcu_1_t vcu1_msg;
+    data_dbc_vcu_1_init(&vcu1_msg);
+    vcu1_msg.inv_temperature = inv_temp;
+    vcu1_msg.motor_temperature = motor_temp;
+    vcu1_msg.bms_voltage = bms_voltage;
+    vcu1_msg.soc_hv = (uint8_t)soc_hv;
+
+    if (data_dbc_vcu_1_pack(data, &vcu1_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_1_FRAME_ID, data, DATA_DBC_VCU_1_LENGTH);
+    }
+
+    // Send VCU_2 message (0x22) - APPS error and other states
+    struct data_dbc_vcu_2_t vcu2_msg;
+    data_dbc_vcu_2_init(&vcu2_msg);
+    vcu2_msg.inv_faults = 0;  // Not provided in parameters
+    vcu2_msg.lmt1 = 0;        // Not provided in parameters
+    vcu2_msg.lmt2 = 0;        // Not provided in parameters
+    vcu2_msg.vcu_state = 0;   // Not provided in parameters
+    vcu2_msg.apps_error = (uint8_t)apps_error;
+    vcu2_msg.power_plan = 0;  // Not provided in parameters
+
+    if (data_dbc_vcu_2_pack(data, &vcu2_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_2_FRAME_ID, data, DATA_DBC_VCU_2_LENGTH);
+    }
+
+    // Send VCU_3 message (0x23) - Inverter voltage, RPM, IGN, R2D
+    struct data_dbc_vcu_3_t vcu3_msg;
+    data_dbc_vcu_3_init(&vcu3_msg);
+    vcu3_msg.inv_voltage = inv_voltage;
+    vcu3_msg.rpm = rpm;
+    vcu3_msg.ign = (uint8_t)ign_signal;
+    vcu3_msg.r2_d = (uint8_t)r2d_signal;
+
+    if (data_dbc_vcu_3_pack(data, &vcu3_msg, sizeof(data)) > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_3_FRAME_ID, data, DATA_DBC_VCU_3_LENGTH);
     }
 }

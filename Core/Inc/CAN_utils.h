@@ -239,6 +239,8 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
 void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
+void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal);
+
 /**
  * @brief CAN mailbox used for transmitting messages
  */
