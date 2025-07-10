@@ -29,10 +29,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1404U
-#define __APPS_MAX_BITS 2608U
+#define __APPS_MIN_BITS 1450U
+#define __APPS_MAX_BITS 2361U
 #define __APPS_TOLERANCE 50U  // tolerancia para o erro
-#define __APPS_DELTA 292U     // usado para normalizar o valor do APPS
+#define __APPS_DELTA 290U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
@@ -179,6 +179,8 @@ typedef struct {
     uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
     bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
 } VCU_Signals_t;
+
+long erpm_temporary = 0;  // Temporary variable for ERPM calculations
 
 // Initialize all signals to 0
 VCU_Signals_t vcu = {
@@ -1038,7 +1040,8 @@ void HandleState(void) {
 
                 uint32_t erpm = as_system.target_rpm * 10;
                 can_bus_send_HV500_SetERPM(erpm, &hcan2);
-                can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
+                can_send_vcu_rpm(&hcan3, erpm_temporary);
+                //can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_auto = current_time_auto;
 
@@ -1118,7 +1121,12 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-        can_filter_id_bus2(RxHeader2, RxData2);
+           if (RxHeader2.StdId == 0x14) {
+         erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
+            //printf("\n\rERPM: %d\n\r", erpm_temporary);
+        } else {
+            can_filter_id_bus2(RxHeader2, RxData2);
+        }
     }
 }
 
@@ -1285,8 +1293,8 @@ int main(void) {
             vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
             turn_on_brake_light(vcu.brake_pressure);
 
-            printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
-            //   printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
+            // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
+            //    printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
 
             previous_tick = current_tick;
         }

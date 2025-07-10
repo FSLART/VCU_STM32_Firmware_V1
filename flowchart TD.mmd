@@ -1,0 +1,89 @@
+flowchart TD
+    %% VCU State Machine Flowchart
+    
+    %% Start and states
+    START([System Start]) --> INIT{{"STATE_INIT"}}
+    INIT --> STANDBY{{"STATE_STANDBY"}}
+    
+    %% Emergency state (highest priority)
+    EMERGENCY{{"STATE_AS_EMERGENCY"}} 
+    
+    %% Main states
+    SHUTDOWN{{"STATE_SHUTDOWN"}}
+    PRECHARGE{{"STATE_PRECHARGE"}}
+    WAIT_R2D_MANUAL{{"STATE_WAITING_FOR_R2D_MANUAL"}}
+    WAIT_R2D_AUTO{{"STATE_WAITING_FOR_R2D_AUTO"}}
+    READY_MANUAL{{"STATE_READY_MANUAL"}}
+    READY_AUTO{{"STATE_READY_AUTONOMOUS"}}
+    
+    %% Emergency conditions (highest priority - can interrupt any state)
+    INIT -.->|"AS Emergency<br/>(as_system.state == 4 OR<br/>res.signal == 0)"| EMERGENCY
+    STANDBY -.->|"AS Emergency"| EMERGENCY
+    SHUTDOWN -.->|"AS Emergency"| EMERGENCY
+    PRECHARGE -.->|"AS Emergency"| EMERGENCY
+    WAIT_R2D_MANUAL -.->|"AS Emergency"| EMERGENCY
+    WAIT_R2D_AUTO -.->|"AS Emergency"| EMERGENCY
+    READY_MANUAL -.->|"AS Emergency"| EMERGENCY
+    READY_AUTO -.->|"AS Emergency"| EMERGENCY
+    
+    %% From SHUTDOWN
+    SHUTDOWN -->|"shutdown_signal == true AND<br/>ignition_switch == false AND<br/>ignition_ad == false"| STANDBY
+    
+    %% From STANDBY
+    STANDBY -->|"ignition_switch == true AND<br/>shutdown_signal == true<br/>(Manual Mode)"| PRECHARGE
+    STANDBY -->|"ignition_ad == true AND<br/>ASMS == true AND<br/>shutdown_signal == true<br/>(Autonomous Mode)"| PRECHARGE
+    
+    %% From PRECHARGE
+    PRECHARGE -->|"ignition_switch == false AND<br/>ignition_ad == false"| STANDBY
+    PRECHARGE -->|"shutdown_signal == false"| SHUTDOWN
+    PRECHARGE -->|"Precharge Complete AND<br/>Manual Mode<br/>(Bypass OR bms.precharge_circuit_state == 9<br/>OR myHV500.Actual_InputVoltage > 450)"| WAIT_R2D_MANUAL
+    PRECHARGE -->|"Precharge Complete AND<br/>Autonomous Mode"| WAIT_R2D_AUTO
+    
+    %% From WAIT_R2D_MANUAL
+    WAIT_R2D_MANUAL -->|"ignition_switch == false"| STANDBY
+    WAIT_R2D_MANUAL -->|"shutdown_signal == false"| SHUTDOWN
+    WAIT_R2D_MANUAL -->|"R2D Button Pressed AND<br/>(Bypass_brake_pressure OR<br/>brake_pressure > BRAKE_PRESSURE_THRESHOLD)"| READY_MANUAL
+    
+    %% From WAIT_R2D_AUTO
+    WAIT_R2D_AUTO -->|"ignition_ad == false"| STANDBY
+    WAIT_R2D_AUTO -->|"shutdown_signal == false"| SHUTDOWN
+    WAIT_R2D_AUTO -->|"as_system.state == 3<br/>(Driving State)"| READY_AUTO
+    
+    %% From READY_MANUAL
+    READY_MANUAL -->|"ignition_switch == false"| STANDBY
+    READY_MANUAL -->|"shutdown_signal == false"| SHUTDOWN
+    READY_MANUAL -->|"R2D Button Pressed Again<br/>(Toggle Off)"| WAIT_R2D_MANUAL
+    
+    %% From READY_AUTO
+    READY_AUTO -->|"ignition_ad == false"| STANDBY
+    READY_AUTO -->|"as_system.state != 3<br/>(Not Driving)"| WAIT_R2D_AUTO
+    
+    %% From EMERGENCY
+    EMERGENCY -->|"NOT acu.is_in_emergency AND<br/>as_system.state != 4 AND<br/>res.signal != 0"| STANDBY
+    EMERGENCY -->|"shutdown_signal == false<br/>(After Emergency Clear)"| SHUTDOWN
+    
+    %% State descriptions
+    INIT -.->|"Always transitions"| X1[["Initialization<br/>• System startup<br/>• Initialize components"]]
+    STANDBY -.-> X2[["Standby State<br/>• System ready<br/>• Waiting for ignition<br/>• All systems reset"]]
+    SHUTDOWN -.-> X3[["Shutdown State<br/>• System shutdown<br/>• Wait for conditions to clear"]]
+    PRECHARGE -.-> X4[["Precharge State<br/>• HV system precharging<br/>• Wait for voltage buildup<br/>• Monitor precharge circuit"]]
+    WAIT_R2D_MANUAL -.-> X5[["Wait R2D Manual<br/>• Manual mode active<br/>• Wait for R2D button<br/>• Check brake pressure"]]
+    WAIT_R2D_AUTO -.-> X6[["Wait R2D Auto<br/>• Autonomous mode active<br/>• Wait for driving state<br/>• Monitor AS system"]]
+    READY_MANUAL -.-> X7[["Ready Manual<br/>• Manual driving enabled<br/>• APPS control active<br/>• Send commands to inverter"]]
+    READY_AUTO -.-> X8[["Ready Autonomous<br/>• Autonomous driving enabled<br/>• Forward AS commands<br/>• Gateway to inverter"]]
+    EMERGENCY -.-> X9[["Emergency State<br/>• Emergency stop activated<br/>• Play emergency sound<br/>• Disable drive systems"]]
+    
+    %% Styling
+    classDef initState fill:#e1f5fe,stroke:#01579b,stroke-width:2px
+    classDef normalState fill:#f3e5f5,stroke:#4a148c,stroke-width:2px
+    classDef readyState fill:#e8f5e8,stroke:#1b5e20,stroke-width:2px
+    classDef emergencyState fill:#ffebee,stroke:#b71c1c,stroke-width:3px
+    classDef shutdownState fill:#fafafa,stroke:#424242,stroke-width:2px
+    classDef description fill:#fff3e0,stroke:#e65100,stroke-width:1px,stroke-dasharray: 5 5
+    
+    class INIT initState
+    class STANDBY,PRECHARGE,WAIT_R2D_MANUAL,WAIT_R2D_AUTO normalState
+    class READY_MANUAL,READY_AUTO readyState
+    class EMERGENCY emergencyState
+    class SHUTDOWN shutdownState
+    class X1,X2,X3,X4,X5,X6,X7,X8,X9 description

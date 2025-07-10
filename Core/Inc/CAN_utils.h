@@ -20,7 +20,7 @@ typedef struct {
 /*data stucture for interating with the HV500 inverter*/
 typedef struct {
     // Received data
-    long Actual_ERPM;
+    uint32_t Actual_ERPM;
     uint32_t Actual_Duty;
     uint32_t Actual_InputVoltage;
     uint32_t Actual_ACCurrent;
@@ -229,7 +229,7 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 
 /* Autonomous bus functions */
 
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, long rpm);
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);
 
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state);
 
