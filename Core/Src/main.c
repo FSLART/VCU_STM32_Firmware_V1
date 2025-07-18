@@ -29,10 +29,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1450U
-#define __APPS_MAX_BITS 2361U
+#define __APPS_MIN_BITS 1404U
+#define __APPS_MAX_BITS 2608U
 #define __APPS_TOLERANCE 50U  // tolerancia para o erro
-#define __APPS_DELTA 290U     // usado para normalizar o valor do APPS
+#define __APPS_DELTA 292U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
@@ -1041,7 +1041,7 @@ void HandleState(void) {
                 uint32_t erpm = as_system.target_rpm * 10;
                 can_bus_send_HV500_SetERPM(erpm, &hcan2);
                 can_send_vcu_rpm(&hcan3, erpm_temporary);
-                //can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
+                // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_auto = current_time_auto;
 
@@ -1121,9 +1121,9 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-           if (RxHeader2.StdId == 0x14) {
-         erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-            //printf("\n\rERPM: %d\n\r", erpm_temporary);
+        if (RxHeader2.StdId == 0x14) {
+            erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
+            printf("\n\rERPM: %d\n\r", erpm_temporary);
         } else {
             can_filter_id_bus2(RxHeader2, RxData2);
         }
@@ -1274,153 +1274,154 @@ int main(void) {
 
             result = APPS_Process(apps2_avg, apps1_avg);
 
+            send_all_vcu_frames(&hcan1);
 #if CALIBRATE_APPS
-            // If calibration is in progress, update it
-            if (APPS_IsCalibrating()) {
-                bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
-                if (calibration_complete) {
-                    // Optionally, automatically apply the calibration
-                    uint16_t min, max, tolerance, delta;
-                    APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
-                    APPS_Init(min, max, tolerance, delta);
+                // If calibration is in progress, update it
+                if (APPS_IsCalibrating()) {
+                    bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
+                    if (calibration_complete) {
+                        // Optionally, automatically apply the calibration
+                        uint16_t min, max, tolerance, delta;
+                        APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
+                        APPS_Init(min, max, tolerance, delta);
+                    }
                 }
-            }
 #endif
 #if print_apps
-            APPS_PrintStatus();
+                APPS_PrintStatus();
 #endif
 
-            vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
-            turn_on_brake_light(vcu.brake_pressure);
+                vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+                turn_on_brake_light(vcu.brake_pressure);
 
-            // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
-            //    printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
+                // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
+                //    printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
 
-            previous_tick = current_tick;
+                previous_tick = current_tick;
+            }
+
+            // Update moving average with new APPS values
+            MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+
+            // Check for CAN timeouts
+            // CheckCANTimeouts();
+
+            // r2d button
+            // debounce_r2d_button();
+
+            // Update state based on inputs
+            UpdateState();
+
+            // Execute state-specific actions
+            HandleState();
+        }
+        /* USER CODE END 3 */
+    }
+
+    /**
+     * @brief System Clock Configuration
+     * @retval None
+     */
+    void SystemClock_Config(void) {
+        RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+        RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+        /** Configure the main internal regulator output voltage
+         */
+        __HAL_RCC_PWR_CLK_ENABLE();
+        __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
+
+        /** Initializes the RCC Oscillators according to the specified parameters
+         * in the RCC_OscInitTypeDef structure.
+         */
+        RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+        RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+        RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+        RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+        RCC_OscInitStruct.PLL.PLLM = 4;
+        RCC_OscInitStruct.PLL.PLLN = 216;
+        RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
+        RCC_OscInitStruct.PLL.PLLQ = 2;
+        RCC_OscInitStruct.PLL.PLLR = 2;
+        if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
+            Error_Handler();
         }
 
-        // Update moving average with new APPS values
-        MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+        /** Activate the Over-Drive mode
+         */
+        if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
+            Error_Handler();
+        }
 
-        // Check for CAN timeouts
-        // CheckCANTimeouts();
+        /** Initializes the CPU, AHB and APB buses clocks
+         */
+        RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
+        RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+        RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+        RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
+        RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
 
-        // r2d button
-        // debounce_r2d_button();
-
-        // Update state based on inputs
-        UpdateState();
-
-        // Execute state-specific actions
-        HandleState();
-    }
-    /* USER CODE END 3 */
-}
-
-/**
- * @brief System Clock Configuration
- * @retval None
- */
-void SystemClock_Config(void) {
-    RCC_OscInitTypeDef RCC_OscInitStruct = {0};
-    RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
-
-    /** Configure the main internal regulator output voltage
-     */
-    __HAL_RCC_PWR_CLK_ENABLE();
-    __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
-
-    /** Initializes the RCC Oscillators according to the specified parameters
-     * in the RCC_OscInitTypeDef structure.
-     */
-    RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
-    RCC_OscInitStruct.HSEState = RCC_HSE_ON;
-    RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
-    RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
-    RCC_OscInitStruct.PLL.PLLM = 4;
-    RCC_OscInitStruct.PLL.PLLN = 216;
-    RCC_OscInitStruct.PLL.PLLP = RCC_PLLP_DIV2;
-    RCC_OscInitStruct.PLL.PLLQ = 2;
-    RCC_OscInitStruct.PLL.PLLR = 2;
-    if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK) {
-        Error_Handler();
+        if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
+            Error_Handler();
+        }
     }
 
-    /** Activate the Over-Drive mode
-     */
-    if (HAL_PWREx_EnableOverDrive() != HAL_OK) {
-        Error_Handler();
+    /* USER CODE BEGIN 4 */
+
+    /* USER CODE END 4 */
+
+    /* MPU Configuration */
+
+    void MPU_Config(void) {
+        MPU_Region_InitTypeDef MPU_InitStruct = {0};
+
+        /* Disables the MPU */
+        HAL_MPU_Disable();
+
+        /** Initializes and configures the Region and the memory to be protected
+         */
+        MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+        MPU_InitStruct.Number = MPU_REGION_NUMBER0;
+        MPU_InitStruct.BaseAddress = 0x30000000;
+        MPU_InitStruct.Size = MPU_REGION_SIZE_32B;
+        MPU_InitStruct.SubRegionDisable = 0x0;
+        MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+        MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+        MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+        MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+        MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+        MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+        HAL_MPU_ConfigRegion(&MPU_InitStruct);
+        /* Enables the MPU */
+        HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
     }
 
-    /** Initializes the CPU, AHB and APB buses clocks
+    /**
+     * @brief  This function is executed in case of error occurrence.
+     * @retval None
      */
-    RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK | RCC_CLOCKTYPE_SYSCLK | RCC_CLOCKTYPE_PCLK1 | RCC_CLOCKTYPE_PCLK2;
-    RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
-    RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-    RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV4;
-    RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV2;
-
-    if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_7) != HAL_OK) {
-        Error_Handler();
+    void Error_Handler(void) {
+        /* USER CODE BEGIN Error_Handler_Debug */
+        /* User can add his own implementation to report the HAL error return state */
+        __disable_irq();
+        while (1) {
+        }
+        /* USER CODE END Error_Handler_Debug */
     }
-}
-
-/* USER CODE BEGIN 4 */
-
-/* USER CODE END 4 */
-
-/* MPU Configuration */
-
-void MPU_Config(void) {
-    MPU_Region_InitTypeDef MPU_InitStruct = {0};
-
-    /* Disables the MPU */
-    HAL_MPU_Disable();
-
-    /** Initializes and configures the Region and the memory to be protected
-     */
-    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
-    MPU_InitStruct.Number = MPU_REGION_NUMBER0;
-    MPU_InitStruct.BaseAddress = 0x30000000;
-    MPU_InitStruct.Size = MPU_REGION_SIZE_32B;
-    MPU_InitStruct.SubRegionDisable = 0x0;
-    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-    MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
-    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
-    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
-    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
-    HAL_MPU_ConfigRegion(&MPU_InitStruct);
-    /* Enables the MPU */
-    HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
-}
-
-/**
- * @brief  This function is executed in case of error occurrence.
- * @retval None
- */
-void Error_Handler(void) {
-    /* USER CODE BEGIN Error_Handler_Debug */
-    /* User can add his own implementation to report the HAL error return state */
-    __disable_irq();
-    while (1) {
-    }
-    /* USER CODE END Error_Handler_Debug */
-}
 
 #ifdef USE_FULL_ASSERT
-/**
- * @brief  Reports the name of the source file and the source line number
- *         where the assert_param error has occurred.
- * @param  file: pointer to the source file name
- * @param  line: assert_param error line source number
- * @retval None
- */
-void assert_failed(uint8_t *file, uint32_t line) {
-    /* USER CODE BEGIN 6 */
-    /* User can add his own implementation to report the file name and line number,
-       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
-    /* USER CODE END 6 */
-}
+    /**
+     * @brief  Reports the name of the source file and the source line number
+     *         where the assert_param error has occurred.
+     * @param  file: pointer to the source file name
+     * @param  line: assert_param error line source number
+     * @retval None
+     */
+    void assert_failed(uint8_t *file, uint32_t line) {
+        /* USER CODE BEGIN 6 */
+        /* User can add his own implementation to report the file name and line number,
+           ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+        /* USER CODE END 6 */
+    }
 #endif /* USE_FULL_ASSERT */

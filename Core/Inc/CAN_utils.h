@@ -241,6 +241,44 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
 void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal);
 
+/* VCU Data Logging Functions */
+
+/**
+ * @brief Send VCU_ frame (0x20) - Basic pedal and power data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_0(CAN_HandleTypeDef *hcan);
+
+/**
+ * @brief Send VCU_1 frame (0x21) - Temperature and voltage data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_1(CAN_HandleTypeDef *hcan);
+
+/**
+ * @brief Send VCU_2 frame (0x22) - Faults and state data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_2(CAN_HandleTypeDef *hcan);
+
+/**
+ * @brief Send VCU_3 frame (0x23) - Motor and system status
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_3(CAN_HandleTypeDef *hcan);
+
+/**
+ * @brief Send VCU_4 frame (0x24) - System states and LV data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_4(CAN_HandleTypeDef *hcan);
+
+/**
+ * @brief Send all VCU frames to the data bus
+ * @param hcan CAN handle for the data bus
+ */
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan);
+
 /**
  * @brief CAN mailbox used for transmitting messages
  */
