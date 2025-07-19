@@ -247,7 +247,7 @@ void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t bra
  * @brief Send VCU_ frame (0x20) - Basic pedal and power data
  * @param hcan CAN handle for the data bus
  */
-void send_vcu_0(CAN_HandleTypeDef *hcan);
+void send_vcu_0(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake_pressure);
 
 /**
  * @brief Send VCU_1 frame (0x21) - Temperature and voltage data

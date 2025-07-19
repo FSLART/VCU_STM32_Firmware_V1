@@ -302,7 +302,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     switch (RxHeader.StdId) {
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
             myHV500.Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
-            printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
+            //printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
             myHV500.Actual_Duty = MAP_DECODE_Actual_Duty(data);
             myHV500.Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
             break;
@@ -506,18 +506,18 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
  * @brief Send VCU_ frame (0x20) - Basic pedal and power data
  * @param hcan CAN handle for the data bus
  */
-void send_vcu_0(CAN_HandleTypeDef *hcan) {
+void send_vcu_0(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake_pressure) {
     struct data_dbc_vcu__t vcu_frame;
     uint8_t data[8];
 
     // Initialize the frame
     data_dbc_vcu__init(&vcu_frame);
 
-    // Populate with actual VCU data (you'll need to replace these with real variables)
-    vcu_frame.apps = 0;        // APPS percentage (0-100%) - replace with actual APPS value
-    vcu_frame.bps = 0;         // Brake pressure - replace with actual brake pressure
-    vcu_frame.trgt_power = 0;  // Target power (0-85000W) - replace with actual target power
-    vcu_frame.cnsm_power = 0;  // Consumed power (0-85000W) - replace with actual consumed power
+    // Populate with actual VCU data
+    vcu_frame.apps = (uint8_t)apps;           // APPS percentage (0-100%)
+    vcu_frame.bps = (uint8_t)brake_pressure;  // Brake pressure
+    vcu_frame.trgt_power = 0;                 // Target power
+    vcu_frame.cnsm_power = 0;                 // Consumed power
 
     // Pack the data
     int pack_result = data_dbc_vcu__pack(data, &vcu_frame, sizeof(data));
@@ -589,7 +589,7 @@ void send_vcu_3(CAN_HandleTypeDef *hcan) {
 
     // Populate with actual VCU data
     vcu3_frame.inv_voltage = (uint16_t)myHV500.Actual_InputVoltage;  // DC link inverter voltage
-    vcu3_frame.rpm = (uint16_t)(myHV500.Actual_ERPM / 10);           // RPM (convert from ERPM)
+    vcu3_frame.rpm = (uint16_t)(myHV500.Actual_ERPM);                // RPM (convert from ERPM)
     vcu3_frame.ign = 0;                                              // Ignition - replace with actual ignition signal
     vcu3_frame.r2_d = 0;                                             // Ready to drive - replace with actual R2D signal
 
@@ -630,7 +630,7 @@ void send_vcu_4(CAN_HandleTypeDef *hcan) {
  * @param hcan CAN handle for the data bus
  */
 void send_all_vcu_frames(CAN_HandleTypeDef *hcan) {
-    send_vcu_0(hcan);
+    // send_vcu_0(hcan);
     send_vcu_1(hcan);
     send_vcu_2(hcan);
     send_vcu_3(hcan);
