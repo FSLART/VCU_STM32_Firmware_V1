@@ -7,6 +7,14 @@
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
 #include "autonomous_temporary.h"
+#include "data_dbc.h"  // Add this include for VCU data frames
+
+#define TIRE_RADIUS_M 0.255f
+#define LART_PI 3.14159265358979323846
+#define TIRE_PERIMETER_M (2 * LART_PI * TIRE_RADIUS_M)
+
+#define TRANSMISSION_RATIO 4.0f
+#define RPM_TO_KMH(rpm) (TIRE_PERIMETER_M * (rpm / TRANSMISSION_RATIO / 60.0))
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
@@ -301,7 +309,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     switch (RxHeader.StdId) {
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
             myHV500.Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
-            //printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
+            // printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
             myHV500.Actual_Duty = MAP_DECODE_Actual_Duty(data);
             myHV500.Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
             break;
@@ -404,8 +412,8 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
 
     uint16_t rpm_u16 = (uint16_t)rpm;
 
-    //printf("RPM: %ld , RPM_uint16_t: %d \n", rpm, rpm_u16);
-    // Perdu é gay
+    // printf("RPM: %ld , RPM_uint16_t: %d \n", rpm, rpm_u16);
+    //  Perdu é gay
     can_data_t data;
     data.id = 0x510;
     data.length = 2;
@@ -463,7 +471,7 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
             autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
             as_system.mission_select = jetson_ms.mission_select;
             break;
-        //case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
+        // case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
         case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
             struct autonomous_temporary_rd_jetson_t rd_jetson;
             autonomous_temporary_rd_jetson_init(&rd_jetson);
@@ -496,4 +504,169 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
         default:
             break;
     }
+}
+
+// ----------------------------------------------
+//---------- SEND DATA TO DATA BUS -----------
+// ----------------------------------------------
+
+/**
+ * @brief Send VCU_ frame (0x20) - Basic pedal and power data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_0(CAN_HandleTypeDef *hcan) {
+    struct data_dbc_vcu__t vcu_frame;
+    uint8_t data[8];
+
+    // Initialize the frame
+    data_dbc_vcu__init(&vcu_frame);
+
+    // Populate with actual VCU data
+    // extern APPS_Result_t result;  // Get APPS result from main
+    // extern VCU_Signals_t vcu;     // Get VCU signals from main
+
+    // vcu_frame.apps = (uint8_t)(result.percentage_1000 / 10);                                           // Convert from 0-1000 to 0-100%
+    // vcu_frame.bps = vcu.brake_pressure;                                                                // Brake pressure from ADC
+    vcu_frame.trgt_power = (uint32_t)(myHV500.Actual_ERPM * myHV500.Actual_DCCurrent / 1000);          // Estimated target power
+    vcu_frame.cnsm_power = (uint32_t)(myHV500.Actual_InputVoltage * myHV500.Actual_DCCurrent / 1000);  // Consumed power
+
+    // Pack the data
+    int pack_result = data_dbc_vcu__pack(data, &vcu_frame, sizeof(data));
+    if (pack_result > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU__FRAME_ID, data, DATA_DBC_VCU__LENGTH);
+    }
+}
+
+/**
+ * @brief Send VCU_1 frame (0x21) - Temperature and voltage data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_1(CAN_HandleTypeDef *hcan) {
+    struct data_dbc_vcu_1_t vcu1_frame;
+    uint8_t data[8];
+
+    // Initialize the frame
+    data_dbc_vcu_1_init(&vcu1_frame);
+
+    // Populate with actual VCU data from HV500 and BMS
+    vcu1_frame.inv_temperature = (uint16_t)myHV500.Actual_TempController;  // Inverter temperature
+    vcu1_frame.motor_temperature = (uint16_t)myHV500.Actual_TempMotor;     // Motor temperature
+    vcu1_frame.bms_voltage = bms.instant_voltage;                          // BMS voltage
+    vcu1_frame.soc_hv = bms.soc;                                           // SOC HV
+
+    // Pack the data
+    int pack_result = data_dbc_vcu_1_pack(data, &vcu1_frame, sizeof(data));
+    if (pack_result > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_1_FRAME_ID, data, DATA_DBC_VCU_1_LENGTH);
+    }
+}
+
+/**
+ * @brief Send VCU_2 frame (0x22) - Faults and state data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_2(CAN_HandleTypeDef *hcan) {
+    struct data_dbc_vcu_2_t vcu2_frame;
+    uint8_t data[8];
+
+    // Initialize the frame
+    data_dbc_vcu_2_init(&vcu2_frame);
+
+    // Populate with actual VCU data
+    // extern VCU_STATE_t current_state;  // VCU state machine
+    // extern APPS_Result_t result;       // APPS error status
+
+    vcu2_frame.inv_faults = (uint16_t)myHV500.Actual_FaultCode;  // Inverter faults
+    vcu2_frame.lmt1 = (uint8_t)myHV500.RPM_max_limit;            // RPM power limit
+    vcu2_frame.lmt2 = (uint8_t)myHV500.Motor_temp_limit;         // Current limit motor temp
+    // vcu2_frame.vcu_state = (uint8_t)current_state;               // VCU state machine current state
+    //  vcu2_frame.apps_error = (uint8_t)result.error_status;        // APPS error status
+    vcu2_frame.power_plan = 0;  // Power plan switch - add variable when available
+
+    // Pack the data
+    int pack_result = data_dbc_vcu_2_pack(data, &vcu2_frame, sizeof(data));
+    if (pack_result > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_2_FRAME_ID, data, DATA_DBC_VCU_2_LENGTH);
+    }
+}
+
+/**
+ * @brief Send VCU_3 frame (0x23) - Motor and system status
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_3(CAN_HandleTypeDef *hcan) {
+    struct data_dbc_vcu_3_t vcu3_frame;
+    uint8_t data[8];
+
+    // Initialize the frame
+    data_dbc_vcu_3_init(&vcu3_frame);
+
+    // Populate with actual VCU data
+    // extern VCU_Signals_t vcu;  // VCU signals structure
+
+    vcu3_frame.inv_voltage = (uint16_t)myHV500.Actual_InputVoltage;     // DC link inverter voltage
+    vcu3_frame.rpm = (uint16_t)(RPM_TO_KMH(myHV500.Actual_ERPM / 10));  // RPM (convert from ERPM)
+    // vcu3_frame.ign = (uint8_t)(vcu.ignition_switch_signal || vcu.ignition_ad);        // Combined ignition signal
+    // vcu3_frame.r2_d = (uint8_t)(vcu.r2d_button_signal || vcu.r2d_autonomous_signal);  // Combined R2D signal
+
+    // Pack the data
+    int pack_result = data_dbc_vcu_3_pack(data, &vcu3_frame, sizeof(data));
+    if (pack_result > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_3_FRAME_ID, data, DATA_DBC_VCU_3_LENGTH);
+    }
+}
+
+/**
+ * @brief Send VCU_4 frame (0x24) - System states and LV data
+ * @param hcan CAN handle for the data bus
+ */
+void send_vcu_4(CAN_HandleTypeDef *hcan) {
+    struct data_dbc_vcu_4_t vcu4_frame;
+    uint8_t data[8];
+
+    // Initialize the frame
+    data_dbc_vcu_4_init(&vcu4_frame);
+
+    // Populate with actual VCU data
+    vcu4_frame.tcu_state = 0;                            // TCU state - replace with actual TCU state
+    vcu4_frame.acu_state = (uint8_t)acu.mission_select;  // ACU state
+    vcu4_frame.alc_state = 0;                            // ALC state - replace with actual ALC state
+    vcu4_frame.lv_soc = 0;                               // LV SOC - replace with actual LV SOC
+    vcu4_frame.lv_voltage = 0;                           // LV voltage - replace with actual LV voltage
+
+    // Pack the data
+    int pack_result = data_dbc_vcu_4_pack(data, &vcu4_frame, sizeof(data));
+    if (pack_result > 0) {
+        can_bus_send(hcan, DATA_DBC_VCU_4_FRAME_ID, data, DATA_DBC_VCU_4_LENGTH);
+    }
+}
+
+/**
+ * @brief Send all VCU frames to the data bus
+ * @param hcan CAN handle for the data bus
+ */
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan) {
+    send_vcu_0(hcan);
+    send_vcu_1(hcan);
+    send_vcu_2(hcan);
+    send_vcu_3(hcan);
+    send_vcu_4(hcan);
+}
+
+/**
+ * @brief Send brake pressure data to CAN bus
+ * @param hcan CAN handle for the target bus
+ * @param brake_pressure Brake pressure value (0-255 or scaled as needed)
+ */
+void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressure) {
+    can_data_t data;
+    data.id = 0x25;  // Brake pressure CAN ID - adjust as needed
+    data.length = 1;
+
+    memset(data.message, 0x00, sizeof(data.message));
+
+    // Pack brake pressure as 16-bit value (little endian)
+    data.message[0] = brake_pressure;
+
+    can_bus_send(hcan, data.id, data.message, data.length);
 }

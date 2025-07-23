@@ -222,6 +222,11 @@ static void MPU_Config(void);
 void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
     // Process the data
 }
+
+// Timed task function declarations
+void execute_10ms_tasks(void);
+void execute_100ms_tasks(void);
+void execute_immediate_tasks(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -1099,6 +1104,114 @@ void debounce_r2d_button(void) {
     vcu.r2d_button_signal = stable_state;
 }
 
+/* -------------------- TIMED TASK FUNCTIONS -------------------- */
+
+/**
+ * @brief Execute 10ms tasks (100Hz)
+ * @details High-frequency tasks that need precise timing
+ */
+void execute_10ms_tasks(void) {
+    // Send autonomous HV signal
+    can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
+
+    // Send heartbeat frame on CAN2
+    uint8_t data[8] = {0};
+    CAN_TxHeaderTypeDef TxHeader;
+    TxHeader.StdId = 0x69;
+    TxHeader.ExtId = 0;
+    TxHeader.RTR = CAN_RTR_DATA;
+    TxHeader.IDE = CAN_ID_STD;
+    TxHeader.DLC = 8;
+    TxHeader.TransmitGlobalTime = DISABLE;
+
+    uint32_t TxMailbox;
+    HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
+
+    // Process APPS (Accelerator Pedal Position Sensor)
+    result = APPS_Process(apps2_avg, apps1_avg);
+
+#if CALIBRATE_APPS
+    // If calibration is in progress, update it
+    if (APPS_IsCalibrating()) {
+        bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
+        if (calibration_complete) {
+            // Optionally, automatically apply the calibration
+            uint16_t min, max, tolerance, delta;
+            APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
+            APPS_Init(min, max, tolerance, delta);
+        }
+    }
+#endif
+
+#if print_apps
+    APPS_PrintStatus();
+#endif
+}
+
+/**
+ * @brief Execute 100ms tasks (10Hz)
+ * @details Medium-frequency tasks for sensor reading and logging
+ */
+void execute_100ms_tasks(void) {
+    // Read brake pressure from ADC
+    vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+    turn_on_brake_light(vcu.brake_pressure);
+
+    // Debug prints (uncomment if needed)
+    // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
+    // printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
+
+    // Send VCU telemetry frames in rotation (one different frame each time)
+    static uint8_t frame_index = 0;
+
+    switch (frame_index) {
+        case 0:
+            send_vcu_0(&hcan1);
+            can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
+            break;
+        case 1:
+            send_vcu_1(&hcan1);
+            break;
+        case 2:
+            send_vcu_2(&hcan1);
+            break;
+        case 3:
+            send_vcu_3(&hcan1);
+            break;
+        case 4:
+            send_vcu_4(&hcan1);
+            break;
+    }
+
+    // Move to next frame for next execution (cycles through 0-4)
+    frame_index = (frame_index + 1) % 5;
+} /**
+   * @brief Execute immediate tasks (every loop iteration)
+   * @details Tasks that need to run as fast as possible
+   */
+void execute_immediate_tasks(void) {
+    // Heartbeat LED indicator
+    heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
+
+    // Process CAN3 messages (autonomous bus)
+    if (HAL_CAN_GetRxFifoFillLevel(&hcan3, CAN_RX_FIFO0) > 0) {
+        CAN_RxHeaderTypeDef RxHeader;
+        uint8_t RxData[8];
+        if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
+            decode_auto_bus(RxHeader, RxData);
+        }
+    }
+
+    // Update moving average with new APPS values
+    MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+
+    // Update state machine
+    UpdateState();
+
+    // Execute state-specific actions
+    HandleState();
+}
+
 /* -------------------- COMMUNICATION FUNCTIONS -------------------- */
 
 /**
@@ -1121,12 +1234,14 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-        if (RxHeader2.StdId == 0x14) {
-            erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-            // printf("\n\rERPM: %d\n\r", erpm_temporary);
-        } else {
-            can_filter_id_bus2(RxHeader2, RxData2);
-        }
+        // if (RxHeader2.StdId == 0x14) {
+        //    erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
+        //  printf("\n\rERPM: %d\n\r", erpm_temporary);
+        //} else {
+        //    can_filter_id_bus2(RxHeader2, RxData2);
+        //}
+
+        can_filter_id_bus2(RxHeader2, RxData2);
     }
 }
 
@@ -1234,86 +1349,34 @@ int main(void) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
-        heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
-        // heartbeat_nonblocking(button_led_GPIO_Port, button_led_Pin);
-        //  heartbeat_nonblocking(dout1_BMS_IGN_GPIO_Port, dout1_BMS_IGN_Pin);
-        // led_fade_pwm(&htim4, TIM_CHANNEL_1);  // Use hardware PWM for R2D LED fading
 
-        if (HAL_CAN_GetRxFifoFillLevel(&hcan3, CAN_RX_FIFO0) > 0) {
-            CAN_RxHeaderTypeDef RxHeader;
-            uint8_t RxData[8];
-            if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-                decode_auto_bus(RxHeader, RxData);
-            }
-        }
+        // Execute immediate tasks every loop iteration
+        execute_immediate_tasks();
 
-        // if (HAL_CAN_GetRxFifoFillLevel(&hcan2, CAN_RX_FIFO0) > 0) {
-        //     CAN_RxHeaderTypeDef RxHeader2;
-        //     uint8_t RxData2[8];
-        //     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-        //         can_filter_id_bus2(RxHeader2, RxData2);
-        //     }
-        // }
-
-        static uint32_t previous_tick = 0;
+        // Timing-based tasks
+        static uint32_t previous_tick_10ms = 0;
+        static uint32_t previous_tick_100ms = 0;
         uint32_t current_tick = HAL_GetTick();
-        if (current_tick - previous_tick >= 10) {
-            can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
 
-            uint8_t data[8] = {0};
-            CAN_TxHeaderTypeDef TxHeader;
-            TxHeader.StdId = 0x69;
-            TxHeader.ExtId = 0;
-            TxHeader.RTR = CAN_RTR_DATA;
-            TxHeader.IDE = CAN_ID_STD;
-            TxHeader.DLC = 8;
-            TxHeader.TransmitGlobalTime = DISABLE;
-
-            uint32_t TxMailbox;
-
-            HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
-
-            result = APPS_Process(apps2_avg, apps1_avg);
-
-#if CALIBRATE_APPS
-            // If calibration is in progress, update it
-            if (APPS_IsCalibrating()) {
-                bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
-                if (calibration_complete) {
-                    // Optionally, automatically apply the calibration
-                    uint16_t min, max, tolerance, delta;
-                    APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
-                    APPS_Init(min, max, tolerance, delta);
-                }
-            }
-#endif
-#if print_apps
-            APPS_PrintStatus();
-#endif
-
-            vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
-            turn_on_brake_light(vcu.brake_pressure);
-
-            // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
-            //    printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
-
-            previous_tick = current_tick;
+        // 10ms tasks (100Hz) - High frequency control tasks
+        if (current_tick - previous_tick_10ms >= 10) {
+            execute_10ms_tasks();
+            previous_tick_10ms = current_tick;
         }
 
-        // Update moving average with new APPS values
-        MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+        // 100ms tasks (10Hz) - Medium frequency monitoring tasks
+        if (current_tick - previous_tick_100ms >= 100) {
+            execute_100ms_tasks();
+            previous_tick_100ms = current_tick;
+        }
 
-        // Check for CAN timeouts
-        // CheckCANTimeouts();
-
-        // r2d button
-        // debounce_r2d_button();
-
-        // Update state based on inputs
-        UpdateState();
-
-        // Execute state-specific actions
-        HandleState();
+        // Optional: Add more timing intervals here if needed
+        // Example for 1000ms (1Hz) tasks:
+        // static uint32_t previous_tick_1s = 0;
+        // if (current_tick - previous_tick_1s >= 1000) {
+        //     execute_1s_tasks();
+        //     previous_tick_1s = current_tick;
+        // }
     }
     /* USER CODE END 3 */
 }

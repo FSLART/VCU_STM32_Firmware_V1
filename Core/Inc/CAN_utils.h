@@ -227,6 +227,13 @@ void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hca
 
 void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan);
 
+/**
+ * @brief Send brake pressure data to CAN bus
+ * @param hcan CAN handle for the target bus
+ * @param brake_pressure Brake pressure value (0-65535)
+ */
+void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressure);
+
 /* Autonomous bus functions */
 
 void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);

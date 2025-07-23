@@ -11,7 +11,8 @@
         "can_datadb.h": "c",
         "autonomous_temporary.h": "c",
         "limits": "c",
-        "string.h": "c"
+        "string.h": "c",
+        "data_dbc.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }
