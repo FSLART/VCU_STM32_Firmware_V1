@@ -29,10 +29,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1450U
-#define __APPS_MAX_BITS 2361U
+#define __APPS_MIN_BITS 1570U
+#define __APPS_MAX_BITS 2590U
 #define __APPS_TOLERANCE 50U  // tolerancia para o erro
-#define __APPS_DELTA 290U     // usado para normalizar o valor do APPS
+#define __APPS_DELTA 243U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
@@ -1041,7 +1041,7 @@ void HandleState(void) {
                 uint32_t erpm = as_system.target_rpm * 10;
                 can_bus_send_HV500_SetERPM(erpm, &hcan2);
                 can_send_vcu_rpm(&hcan3, erpm_temporary);
-                //can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
+                // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_auto = current_time_auto;
 
@@ -1107,7 +1107,7 @@ void debounce_r2d_button(void) {
 PUTCHAR_PROTOTYPE {
     /* Place your implementation of fputc here */
     /* e.g. write a character to the USART1 and Loop until the end of transmission */
-    HAL_UART_Transmit(&huart1, (uint8_t *)&ch, 1, 0xFFFF);
+    HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
 
     return ch;
 }
@@ -1121,9 +1121,9 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-           if (RxHeader2.StdId == 0x14) {
-         erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-            //printf("\n\rERPM: %d\n\r", erpm_temporary);
+        if (RxHeader2.StdId == 0x14) {
+            erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
+            // printf("\n\rERPM: %d\n\r", erpm_temporary);
         } else {
             can_filter_id_bus2(RxHeader2, RxData2);
         }
@@ -1184,6 +1184,7 @@ int main(void) {
     MX_CAN2_Init();
     MX_TIM1_Init();
     MX_TIM4_Init();
+    MX_USART3_UART_Init();
     /* USER CODE BEGIN 2 */
 
     // Configure filters with different banks

@@ -463,6 +463,7 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
             autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
             as_system.mission_select = jetson_ms.mission_select;
             break;
+        //case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
         case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
             struct autonomous_temporary_rd_jetson_t rd_jetson;
             autonomous_temporary_rd_jetson_init(&rd_jetson);
