@@ -29,84 +29,95 @@
  * SOFTWARE.
  */
 
-#include "data_dbc.h"
-
 #include <string.h>
+
+#include "data_dbc.h"
 
 static inline uint8_t pack_left_shift_u8(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value << shift) & mask);
 }
 
 static inline uint8_t pack_left_shift_u16(
     uint16_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value << shift) & mask);
 }
 
 static inline uint8_t pack_left_shift_u32(
     uint32_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value << shift) & mask);
 }
 
 static inline uint8_t pack_right_shift_u16(
     uint16_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value >> shift) & mask);
 }
 
 static inline uint8_t pack_right_shift_u32(
     uint32_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value >> shift) & mask);
 }
 
 static inline uint16_t unpack_left_shift_u16(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint16_t)((uint16_t)(value & mask) << shift);
 }
 
 static inline uint32_t unpack_left_shift_u32(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint32_t)((uint32_t)(value & mask) << shift);
 }
 
 static inline uint8_t unpack_right_shift_u8(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint8_t)((uint8_t)(value & mask) >> shift);
 }
 
 static inline uint16_t unpack_right_shift_u16(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint16_t)((uint16_t)(value & mask) >> shift);
 }
 
 static inline uint32_t unpack_right_shift_u32(
     uint8_t value,
     uint8_t shift,
-    uint8_t mask) {
+    uint8_t mask)
+{
     return (uint32_t)((uint32_t)(value & mask) >> shift);
 }
 
 int data_dbc_vcu__pack(
     uint8_t *dst_p,
     const struct data_dbc_vcu__t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -128,7 +139,8 @@ int data_dbc_vcu__pack(
 int data_dbc_vcu__unpack(
     struct data_dbc_vcu__t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -145,7 +157,8 @@ int data_dbc_vcu__unpack(
     return (0);
 }
 
-int data_dbc_vcu__init(struct data_dbc_vcu__t *msg_p) {
+int data_dbc_vcu__init(struct data_dbc_vcu__t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_vcu__t));
@@ -153,60 +166,73 @@ int data_dbc_vcu__init(struct data_dbc_vcu__t *msg_p) {
     return 0;
 }
 
-uint8_t data_dbc_vcu__apps_encode(double value) {
+uint8_t data_dbc_vcu__apps_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu__apps_decode(uint8_t value) {
+double data_dbc_vcu__apps_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu__apps_is_in_range(uint8_t value) {
+bool data_dbc_vcu__apps_is_in_range(uint8_t value)
+{
     return (value <= 100u);
 }
 
-uint8_t data_dbc_vcu__bps_encode(double value) {
+uint8_t data_dbc_vcu__bps_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu__bps_decode(uint8_t value) {
+double data_dbc_vcu__bps_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu__bps_is_in_range(uint8_t value) {
+bool data_dbc_vcu__bps_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint32_t data_dbc_vcu__trgt_power_encode(double value) {
+uint32_t data_dbc_vcu__trgt_power_encode(double value)
+{
     return (uint32_t)(value);
 }
 
-double data_dbc_vcu__trgt_power_decode(uint32_t value) {
+double data_dbc_vcu__trgt_power_decode(uint32_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu__trgt_power_is_in_range(uint32_t value) {
+bool data_dbc_vcu__trgt_power_is_in_range(uint32_t value)
+{
     return (value <= 85000u);
 }
 
-uint32_t data_dbc_vcu__cnsm_power_encode(double value) {
+uint32_t data_dbc_vcu__cnsm_power_encode(double value)
+{
     return (uint32_t)(value);
 }
 
-double data_dbc_vcu__cnsm_power_decode(uint32_t value) {
+double data_dbc_vcu__cnsm_power_decode(uint32_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu__cnsm_power_is_in_range(uint32_t value) {
+bool data_dbc_vcu__cnsm_power_is_in_range(uint32_t value)
+{
     return (value <= 85000u);
 }
 
 int data_dbc_vcu_1_pack(
     uint8_t *dst_p,
     const struct data_dbc_vcu_1_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -227,7 +253,8 @@ int data_dbc_vcu_1_pack(
 int data_dbc_vcu_1_unpack(
     struct data_dbc_vcu_1_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -243,7 +270,8 @@ int data_dbc_vcu_1_unpack(
     return (0);
 }
 
-int data_dbc_vcu_1_init(struct data_dbc_vcu_1_t *msg_p) {
+int data_dbc_vcu_1_init(struct data_dbc_vcu_1_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_vcu_1_t));
@@ -251,53 +279,65 @@ int data_dbc_vcu_1_init(struct data_dbc_vcu_1_t *msg_p) {
     return 0;
 }
 
-uint16_t data_dbc_vcu_1_inv_temperature_encode(double value) {
+uint16_t data_dbc_vcu_1_inv_temperature_encode(double value)
+{
     return (uint16_t)(value - 40.0);
 }
 
-double data_dbc_vcu_1_inv_temperature_decode(uint16_t value) {
+double data_dbc_vcu_1_inv_temperature_decode(uint16_t value)
+{
     return ((double)value + 40.0);
 }
 
-bool data_dbc_vcu_1_inv_temperature_is_in_range(uint16_t value) {
+bool data_dbc_vcu_1_inv_temperature_is_in_range(uint16_t value)
+{
     return (value <= 260u);
 }
 
-uint16_t data_dbc_vcu_1_motor_temperature_encode(double value) {
+uint16_t data_dbc_vcu_1_motor_temperature_encode(double value)
+{
     return (uint16_t)(value - 40.0);
 }
 
-double data_dbc_vcu_1_motor_temperature_decode(uint16_t value) {
+double data_dbc_vcu_1_motor_temperature_decode(uint16_t value)
+{
     return ((double)value + 40.0);
 }
 
-bool data_dbc_vcu_1_motor_temperature_is_in_range(uint16_t value) {
+bool data_dbc_vcu_1_motor_temperature_is_in_range(uint16_t value)
+{
     return (value <= 60u);
 }
 
-uint16_t data_dbc_vcu_1_bms_voltage_encode(double value) {
+uint16_t data_dbc_vcu_1_bms_voltage_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_1_bms_voltage_decode(uint16_t value) {
+double data_dbc_vcu_1_bms_voltage_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_1_bms_voltage_is_in_range(uint16_t value) {
+bool data_dbc_vcu_1_bms_voltage_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_vcu_1_soc_hv_encode(double value) {
+uint8_t data_dbc_vcu_1_soc_hv_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_1_soc_hv_decode(uint8_t value) {
+double data_dbc_vcu_1_soc_hv_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_1_soc_hv_is_in_range(uint8_t value) {
+bool data_dbc_vcu_1_soc_hv_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
@@ -306,7 +346,8 @@ bool data_dbc_vcu_1_soc_hv_is_in_range(uint8_t value) {
 int data_dbc_vcu_2_pack(
     uint8_t *dst_p,
     const struct data_dbc_vcu_2_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -327,7 +368,8 @@ int data_dbc_vcu_2_pack(
 int data_dbc_vcu_2_unpack(
     struct data_dbc_vcu_2_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -343,7 +385,8 @@ int data_dbc_vcu_2_unpack(
     return (0);
 }
 
-int data_dbc_vcu_2_init(struct data_dbc_vcu_2_t *msg_p) {
+int data_dbc_vcu_2_init(struct data_dbc_vcu_2_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_vcu_2_t));
@@ -351,82 +394,101 @@ int data_dbc_vcu_2_init(struct data_dbc_vcu_2_t *msg_p) {
     return 0;
 }
 
-uint16_t data_dbc_vcu_2_inv_faults_encode(double value) {
+uint16_t data_dbc_vcu_2_inv_faults_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_2_inv_faults_decode(uint16_t value) {
+double data_dbc_vcu_2_inv_faults_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_inv_faults_is_in_range(uint16_t value) {
+bool data_dbc_vcu_2_inv_faults_is_in_range(uint16_t value)
+{
     return (value <= 255u);
 }
 
-uint8_t data_dbc_vcu_2_lmt1_encode(double value) {
+uint8_t data_dbc_vcu_2_lmt1_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_2_lmt1_decode(uint8_t value) {
+double data_dbc_vcu_2_lmt1_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_lmt1_is_in_range(uint8_t value) {
+bool data_dbc_vcu_2_lmt1_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_vcu_2_lmt2_encode(double value) {
+uint8_t data_dbc_vcu_2_lmt2_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_2_lmt2_decode(uint8_t value) {
+double data_dbc_vcu_2_lmt2_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_lmt2_is_in_range(uint8_t value) {
+bool data_dbc_vcu_2_lmt2_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_vcu_2_vcu_state_encode(double value) {
+uint8_t data_dbc_vcu_2_vcu_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_2_vcu_state_decode(uint8_t value) {
+double data_dbc_vcu_2_vcu_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_vcu_state_is_in_range(uint8_t value) {
+bool data_dbc_vcu_2_vcu_state_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_vcu_2_apps_error_encode(double value) {
+uint8_t data_dbc_vcu_2_apps_error_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_2_apps_error_decode(uint8_t value) {
+double data_dbc_vcu_2_apps_error_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_apps_error_is_in_range(uint8_t value) {
+bool data_dbc_vcu_2_apps_error_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_vcu_2_power_plan_encode(double value) {
+uint8_t data_dbc_vcu_2_power_plan_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_2_power_plan_decode(uint8_t value) {
+double data_dbc_vcu_2_power_plan_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_2_power_plan_is_in_range(uint8_t value) {
+bool data_dbc_vcu_2_power_plan_is_in_range(uint8_t value)
+{
     return (value <= 5u);
 }
 
 int data_dbc_vcu_3_pack(
     uint8_t *dst_p,
     const struct data_dbc_vcu_3_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -446,7 +508,8 @@ int data_dbc_vcu_3_pack(
 int data_dbc_vcu_3_unpack(
     struct data_dbc_vcu_3_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -461,7 +524,8 @@ int data_dbc_vcu_3_unpack(
     return (0);
 }
 
-int data_dbc_vcu_3_init(struct data_dbc_vcu_3_t *msg_p) {
+int data_dbc_vcu_3_init(struct data_dbc_vcu_3_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_vcu_3_t));
@@ -469,58 +533,71 @@ int data_dbc_vcu_3_init(struct data_dbc_vcu_3_t *msg_p) {
     return 0;
 }
 
-uint16_t data_dbc_vcu_3_inv_voltage_encode(double value) {
+uint16_t data_dbc_vcu_3_inv_voltage_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_3_inv_voltage_decode(uint16_t value) {
+double data_dbc_vcu_3_inv_voltage_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_3_inv_voltage_is_in_range(uint16_t value) {
+bool data_dbc_vcu_3_inv_voltage_is_in_range(uint16_t value)
+{
     return (value <= 620u);
 }
 
-uint16_t data_dbc_vcu_3_rpm_encode(double value) {
+uint16_t data_dbc_vcu_3_rpm_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_3_rpm_decode(uint16_t value) {
+double data_dbc_vcu_3_rpm_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_3_rpm_is_in_range(uint16_t value) {
+bool data_dbc_vcu_3_rpm_is_in_range(uint16_t value)
+{
     return (value <= 7000u);
 }
 
-uint8_t data_dbc_vcu_3_ign_encode(double value) {
+uint8_t data_dbc_vcu_3_ign_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_3_ign_decode(uint8_t value) {
+double data_dbc_vcu_3_ign_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_3_ign_is_in_range(uint8_t value) {
+bool data_dbc_vcu_3_ign_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_vcu_3_r2_d_encode(double value) {
+uint8_t data_dbc_vcu_3_r2_d_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_3_r2_d_decode(uint8_t value) {
+double data_dbc_vcu_3_r2_d_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_3_r2_d_is_in_range(uint8_t value) {
+bool data_dbc_vcu_3_r2_d_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
 int data_dbc_vcu_4_pack(
     uint8_t *dst_p,
     const struct data_dbc_vcu_4_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -541,7 +618,8 @@ int data_dbc_vcu_4_pack(
 int data_dbc_vcu_4_unpack(
     struct data_dbc_vcu_4_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -557,7 +635,8 @@ int data_dbc_vcu_4_unpack(
     return (0);
 }
 
-int data_dbc_vcu_4_init(struct data_dbc_vcu_4_t *msg_p) {
+int data_dbc_vcu_4_init(struct data_dbc_vcu_4_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_vcu_4_t));
@@ -565,71 +644,86 @@ int data_dbc_vcu_4_init(struct data_dbc_vcu_4_t *msg_p) {
     return 0;
 }
 
-uint8_t data_dbc_vcu_4_tcu_state_encode(double value) {
+uint8_t data_dbc_vcu_4_tcu_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_4_tcu_state_decode(uint8_t value) {
+double data_dbc_vcu_4_tcu_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_4_tcu_state_is_in_range(uint8_t value) {
+bool data_dbc_vcu_4_tcu_state_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_vcu_4_acu_state_encode(double value) {
+uint8_t data_dbc_vcu_4_acu_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_4_acu_state_decode(uint8_t value) {
+double data_dbc_vcu_4_acu_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_4_acu_state_is_in_range(uint8_t value) {
+bool data_dbc_vcu_4_acu_state_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_vcu_4_alc_state_encode(double value) {
+uint8_t data_dbc_vcu_4_alc_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_vcu_4_alc_state_decode(uint8_t value) {
+double data_dbc_vcu_4_alc_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_4_alc_state_is_in_range(uint8_t value) {
+bool data_dbc_vcu_4_alc_state_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint16_t data_dbc_vcu_4_lv_soc_encode(double value) {
+uint16_t data_dbc_vcu_4_lv_soc_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_4_lv_soc_decode(uint16_t value) {
+double data_dbc_vcu_4_lv_soc_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_4_lv_soc_is_in_range(uint16_t value) {
+bool data_dbc_vcu_4_lv_soc_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint16_t data_dbc_vcu_4_lv_voltage_encode(double value) {
+uint16_t data_dbc_vcu_4_lv_voltage_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_vcu_4_lv_voltage_decode(uint16_t value) {
+double data_dbc_vcu_4_lv_voltage_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_vcu_4_lv_voltage_is_in_range(uint16_t value) {
+bool data_dbc_vcu_4_lv_voltage_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
@@ -638,7 +732,8 @@ bool data_dbc_vcu_4_lv_voltage_is_in_range(uint16_t value) {
 int data_dbc_imu__pack(
     uint8_t *dst_p,
     const struct data_dbc_imu__t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -658,7 +753,8 @@ int data_dbc_imu__pack(
 int data_dbc_imu__unpack(
     struct data_dbc_imu__t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -673,7 +769,8 @@ int data_dbc_imu__unpack(
     return (0);
 }
 
-int data_dbc_imu__init(struct data_dbc_imu__t *msg_p) {
+int data_dbc_imu__init(struct data_dbc_imu__t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_imu__t));
@@ -681,57 +778,69 @@ int data_dbc_imu__init(struct data_dbc_imu__t *msg_p) {
     return 0;
 }
 
-uint16_t data_dbc_imu__accel_x_int_encode(double value) {
+uint16_t data_dbc_imu__accel_x_int_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_imu__accel_x_int_decode(uint16_t value) {
+double data_dbc_imu__accel_x_int_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu__accel_x_int_is_in_range(uint16_t value) {
+bool data_dbc_imu__accel_x_int_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint16_t data_dbc_imu__accel_y_dec_encode(double value) {
+uint16_t data_dbc_imu__accel_y_dec_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_imu__accel_y_dec_decode(uint16_t value) {
+double data_dbc_imu__accel_y_dec_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu__accel_y_dec_is_in_range(uint16_t value) {
+bool data_dbc_imu__accel_y_dec_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_imu__accel_z_int_encode(double value) {
+uint8_t data_dbc_imu__accel_z_int_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_imu__accel_z_int_decode(uint8_t value) {
+double data_dbc_imu__accel_z_int_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu__accel_z_int_is_in_range(uint8_t value) {
+bool data_dbc_imu__accel_z_int_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_imu__heatbit_encode(double value) {
+uint8_t data_dbc_imu__heatbit_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_imu__heatbit_decode(uint8_t value) {
+double data_dbc_imu__heatbit_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu__heatbit_is_in_range(uint8_t value) {
+bool data_dbc_imu__heatbit_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
@@ -740,7 +849,8 @@ bool data_dbc_imu__heatbit_is_in_range(uint8_t value) {
 int data_dbc_imu_1_pack(
     uint8_t *dst_p,
     const struct data_dbc_imu_1_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -761,7 +871,8 @@ int data_dbc_imu_1_pack(
 int data_dbc_imu_1_unpack(
     struct data_dbc_imu_1_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -777,7 +888,8 @@ int data_dbc_imu_1_unpack(
     return (0);
 }
 
-int data_dbc_imu_1_init(struct data_dbc_imu_1_t *msg_p) {
+int data_dbc_imu_1_init(struct data_dbc_imu_1_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_imu_1_t));
@@ -785,57 +897,69 @@ int data_dbc_imu_1_init(struct data_dbc_imu_1_t *msg_p) {
     return 0;
 }
 
-uint16_t data_dbc_imu_1_roll_int_encode(double value) {
+uint16_t data_dbc_imu_1_roll_int_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_imu_1_roll_int_decode(uint16_t value) {
+double data_dbc_imu_1_roll_int_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu_1_roll_int_is_in_range(uint16_t value) {
+bool data_dbc_imu_1_roll_int_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint16_t data_dbc_imu_1_pitch_dec_encode(double value) {
+uint16_t data_dbc_imu_1_pitch_dec_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_imu_1_pitch_dec_decode(uint16_t value) {
+double data_dbc_imu_1_pitch_dec_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu_1_pitch_dec_is_in_range(uint16_t value) {
+bool data_dbc_imu_1_pitch_dec_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint16_t data_dbc_imu_1_yaw_int_encode(double value) {
+uint16_t data_dbc_imu_1_yaw_int_encode(double value)
+{
     return (uint16_t)(value);
 }
 
-double data_dbc_imu_1_yaw_int_decode(uint16_t value) {
+double data_dbc_imu_1_yaw_int_decode(uint16_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu_1_yaw_int_is_in_range(uint16_t value) {
+bool data_dbc_imu_1_yaw_int_is_in_range(uint16_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_imu_1_heartbit_encode(double value) {
+uint8_t data_dbc_imu_1_heartbit_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_imu_1_heartbit_decode(uint8_t value) {
+double data_dbc_imu_1_heartbit_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_imu_1_heartbit_is_in_range(uint8_t value) {
+bool data_dbc_imu_1_heartbit_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
@@ -844,7 +968,8 @@ bool data_dbc_imu_1_heartbit_is_in_range(uint8_t value) {
 int data_dbc_dynamic_r_pack(
     uint8_t *dst_p,
     const struct data_dbc_dynamic_r_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -865,7 +990,8 @@ int data_dbc_dynamic_r_pack(
 int data_dbc_dynamic_r_unpack(
     struct data_dbc_dynamic_r_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -881,7 +1007,8 @@ int data_dbc_dynamic_r_unpack(
     return (0);
 }
 
-int data_dbc_dynamic_r_init(struct data_dbc_dynamic_r_t *msg_p) {
+int data_dbc_dynamic_r_init(struct data_dbc_dynamic_r_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_dynamic_r_t));
@@ -889,98 +1016,120 @@ int data_dbc_dynamic_r_init(struct data_dbc_dynamic_r_t *msg_p) {
     return 0;
 }
 
-uint8_t data_dbc_dynamic_r_wheel_speed_rl_encode(double value) {
+uint8_t data_dbc_dynamic_r_wheel_speed_rl_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_wheel_speed_rl_decode(uint8_t value) {
+double data_dbc_dynamic_r_wheel_speed_rl_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_wheel_speed_rl_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_wheel_speed_rl_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_dynamic_r_wheel_speed_rr_encode(double value) {
+uint8_t data_dbc_dynamic_r_wheel_speed_rr_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_wheel_speed_rr_decode(uint8_t value) {
+double data_dbc_dynamic_r_wheel_speed_rr_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_wheel_speed_rr_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_wheel_speed_rr_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_dynamic_r_sus_pos_rl_encode(double value) {
+uint8_t data_dbc_dynamic_r_sus_pos_rl_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_sus_pos_rl_decode(uint8_t value) {
+double data_dbc_dynamic_r_sus_pos_rl_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_sus_pos_rl_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_sus_pos_rl_is_in_range(uint8_t value)
+{
     return (value <= 50u);
 }
 
-uint8_t data_dbc_dynamic_r_sus_pos_rr_encode(double value) {
+uint8_t data_dbc_dynamic_r_sus_pos_rr_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_sus_pos_rr_decode(uint8_t value) {
+double data_dbc_dynamic_r_sus_pos_rr_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_sus_pos_rr_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_sus_pos_rr_is_in_range(uint8_t value)
+{
     return (value <= 50u);
 }
 
-uint8_t data_dbc_dynamic_r_rr_pc_encode(double value) {
+uint8_t data_dbc_dynamic_r_rr_pc_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_rr_pc_decode(uint8_t value) {
+double data_dbc_dynamic_r_rr_pc_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_rr_pc_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_rr_pc_is_in_range(uint8_t value)
+{
     return (value <= 30u);
 }
 
-uint8_t data_dbc_dynamic_r_rl_pc_encode(double value) {
+uint8_t data_dbc_dynamic_r_rl_pc_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_rl_pc_decode(uint8_t value) {
+double data_dbc_dynamic_r_rl_pc_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_rl_pc_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_rl_pc_is_in_range(uint8_t value)
+{
     return (value <= 30u);
 }
 
-uint8_t data_dbc_dynamic_r_dy_st_encode(double value) {
+uint8_t data_dbc_dynamic_r_dy_st_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_r_dy_st_decode(uint8_t value) {
+double data_dbc_dynamic_r_dy_st_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_r_dy_st_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_r_dy_st_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
 int data_dbc_dynamic_f_pack(
     uint8_t *dst_p,
     const struct data_dbc_dynamic_f_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -1001,7 +1150,8 @@ int data_dbc_dynamic_f_pack(
 int data_dbc_dynamic_f_unpack(
     struct data_dbc_dynamic_f_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -1017,7 +1167,8 @@ int data_dbc_dynamic_f_unpack(
     return (0);
 }
 
-int data_dbc_dynamic_f_init(struct data_dbc_dynamic_f_t *msg_p) {
+int data_dbc_dynamic_f_init(struct data_dbc_dynamic_f_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_dynamic_f_t));
@@ -1025,98 +1176,120 @@ int data_dbc_dynamic_f_init(struct data_dbc_dynamic_f_t *msg_p) {
     return 0;
 }
 
-uint8_t data_dbc_dynamic_f_wheel_speed_fl_encode(double value) {
+uint8_t data_dbc_dynamic_f_wheel_speed_fl_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_wheel_speed_fl_decode(uint8_t value) {
+double data_dbc_dynamic_f_wheel_speed_fl_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_wheel_speed_fl_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_wheel_speed_fl_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_dynamic_f_wheel_speed_fr_encode(double value) {
+uint8_t data_dbc_dynamic_f_wheel_speed_fr_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_wheel_speed_fr_decode(uint8_t value) {
+double data_dbc_dynamic_f_wheel_speed_fr_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_wheel_speed_fr_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_wheel_speed_fr_is_in_range(uint8_t value)
+{
     (void)value;
 
     return (true);
 }
 
-uint8_t data_dbc_dynamic_f_sus_pos_fl_encode(double value) {
+uint8_t data_dbc_dynamic_f_sus_pos_fl_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_sus_pos_fl_decode(uint8_t value) {
+double data_dbc_dynamic_f_sus_pos_fl_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_sus_pos_fl_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_sus_pos_fl_is_in_range(uint8_t value)
+{
     return (value <= 50u);
 }
 
-uint8_t data_dbc_dynamic_f_sus_pos_fr_encode(double value) {
+uint8_t data_dbc_dynamic_f_sus_pos_fr_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_sus_pos_fr_decode(uint8_t value) {
+double data_dbc_dynamic_f_sus_pos_fr_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_sus_pos_fr_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_sus_pos_fr_is_in_range(uint8_t value)
+{
     return (value <= 50u);
 }
 
-uint8_t data_dbc_dynamic_f_fr_pc_encode(double value) {
+uint8_t data_dbc_dynamic_f_fr_pc_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_fr_pc_decode(uint8_t value) {
+double data_dbc_dynamic_f_fr_pc_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_fr_pc_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_fr_pc_is_in_range(uint8_t value)
+{
     return (value <= 30u);
 }
 
-uint8_t data_dbc_dynamic_f_fl_pc_encode(double value) {
+uint8_t data_dbc_dynamic_f_fl_pc_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_fl_pc_decode(uint8_t value) {
+double data_dbc_dynamic_f_fl_pc_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_fl_pc_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_fl_pc_is_in_range(uint8_t value)
+{
     return (value <= 30u);
 }
 
-uint8_t data_dbc_dynamic_f_dy_st_encode(double value) {
+uint8_t data_dbc_dynamic_f_dy_st_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_dynamic_f_dy_st_decode(uint8_t value) {
+double data_dbc_dynamic_f_dy_st_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_dynamic_f_dy_st_is_in_range(uint8_t value) {
+bool data_dbc_dynamic_f_dy_st_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
 int data_dbc_data_logger_pack(
     uint8_t *dst_p,
     const struct data_dbc_data_logger_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -1132,7 +1305,8 @@ int data_dbc_data_logger_pack(
 int data_dbc_data_logger_unpack(
     struct data_dbc_data_logger_t *dst_p,
     const uint8_t *src_p,
-    size_t size) {
+    size_t size)
+{
     if (size < 8u) {
         return (-EINVAL);
     }
@@ -1143,7 +1317,8 @@ int data_dbc_data_logger_unpack(
     return (0);
 }
 
-int data_dbc_data_logger_init(struct data_dbc_data_logger_t *msg_p) {
+int data_dbc_data_logger_init(struct data_dbc_data_logger_t *msg_p)
+{
     if (msg_p == NULL) return -1;
 
     memset(msg_p, 0, sizeof(struct data_dbc_data_logger_t));
@@ -1151,26 +1326,32 @@ int data_dbc_data_logger_init(struct data_dbc_data_logger_t *msg_p) {
     return 0;
 }
 
-uint8_t data_dbc_data_logger_dl_state_encode(double value) {
+uint8_t data_dbc_data_logger_dl_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_data_logger_dl_state_decode(uint8_t value) {
+double data_dbc_data_logger_dl_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_data_logger_dl_state_is_in_range(uint8_t value) {
+bool data_dbc_data_logger_dl_state_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }
 
-uint8_t data_dbc_data_logger_recording_state_encode(double value) {
+uint8_t data_dbc_data_logger_recording_state_encode(double value)
+{
     return (uint8_t)(value);
 }
 
-double data_dbc_data_logger_recording_state_decode(uint8_t value) {
+double data_dbc_data_logger_recording_state_decode(uint8_t value)
+{
     return ((double)value);
 }
 
-bool data_dbc_data_logger_recording_state_is_in_range(uint8_t value) {
+bool data_dbc_data_logger_recording_state_is_in_range(uint8_t value)
+{
     return (value <= 1u);
 }

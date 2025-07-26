@@ -36,12 +36,12 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include <stdint.h>
 
 #ifndef EINVAL
-#define EINVAL 22
+#    define EINVAL 22
 #endif
 
 /* Frame ids. */
@@ -82,7 +82,9 @@ extern "C" {
 
 /* Frame cycle times in milliseconds. */
 
+
 /* Signal choices. */
+
 
 /* Frame Names. */
 #define DATA_DBC_VCU__NAME "VCU_"
@@ -2262,6 +2264,7 @@ double data_dbc_data_logger_recording_state_decode(uint8_t value);
  * @return true if in range, false otherwise.
  */
 bool data_dbc_data_logger_recording_state_is_in_range(uint8_t value);
+
 
 #ifdef __cplusplus
 }

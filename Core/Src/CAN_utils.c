@@ -3,18 +3,16 @@
 #include <string.h>  // Add this for memset function
 
 // #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
+#include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
+#include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
 #include "../../Can-Header-Map/CAN_asdb.h"
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
 #include "autonomous_temporary.h"
-#include "data_dbc.h"  // Add this include for VCU data frames
+#include "data_dbc.h"
 
-#define TIRE_RADIUS_M 0.255f
-#define LART_PI 3.14159265358979323846
-#define TIRE_PERIMETER_M (2 * LART_PI * TIRE_RADIUS_M)
-
-#define TRANSMISSION_RATIO 4.0f
-#define RPM_TO_KMH(rpm) (TIRE_PERIMETER_M * (rpm / TRANSMISSION_RATIO / 60.0))
+// RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
+#define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
@@ -413,7 +411,6 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
     uint16_t rpm_u16 = (uint16_t)rpm;
 
     // printf("RPM: %ld , RPM_uint16_t: %d \n", rpm, rpm_u16);
-    //  Perdu é gay
     can_data_t data;
     data.id = 0x510;
     data.length = 2;
@@ -423,21 +420,35 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
 }
 
 /**
- * @brief Sends the HV signal to the autonomous system
+ * @brief Sends the HV signal and brake pressure front to the autonomous system
  *
  * @param hcan CAN handle for the VCU bus (CAN3)
  * @param hv_state The state of the HV (0 or 1)
+ * @param brake_pressure_front The front brake pressure value (0-255)
  */
-void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state) {
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front) {
     struct autonomous_temporary_vcu_hv_t hv_signal_msg;
     uint8_t data[8];
     data[0] = hv_state;
-    data[1] = 0;
+    data[1] = brake_pressure_front;
     data[2] = 0;
     // autonomous_temporary_vcu_hv_init(&hv_signal_msg);
     // hv_signal_msg.hv = hv_state;  // Set the HV state
     // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
     can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
+}
+
+void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state) {
+    can_data_t data;
+    data.id = 0x600;
+    data.length = 6;
+    data.message[0] = ignition_manual;  // Manual ignition state
+    data.message[1] = r2d_manual;       // Manual R2D state
+    data.message[2] = ignition_auto;    // Auto ignition state
+    data.message[3] = r2d_auto;         // Auto R2D state
+    data.message[4] = shutdown_signal;
+    data.message[5] = vcu_state;  // VCU state
+    can_bus_send(hcan, data.id, data.message, data.length);
 }
 
 /**
@@ -594,7 +605,7 @@ void send_vcu_2(CAN_HandleTypeDef *hcan) {
  * @brief Send VCU_3 frame (0x23) - Motor and system status
  * @param hcan CAN handle for the data bus
  */
-void send_vcu_3(CAN_HandleTypeDef *hcan) {
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto) {
     struct data_dbc_vcu_3_t vcu3_frame;
     uint8_t data[8];
 
@@ -604,10 +615,10 @@ void send_vcu_3(CAN_HandleTypeDef *hcan) {
     // Populate with actual VCU data
     // extern VCU_Signals_t vcu;  // VCU signals structure
 
-    vcu3_frame.inv_voltage = (uint16_t)myHV500.Actual_InputVoltage;     // DC link inverter voltage
-    vcu3_frame.rpm = (uint16_t)(RPM_TO_KMH(myHV500.Actual_ERPM / 10));  // RPM (convert from ERPM)
-    // vcu3_frame.ign = (uint8_t)(vcu.ignition_switch_signal || vcu.ignition_ad);        // Combined ignition signal
-    // vcu3_frame.r2_d = (uint8_t)(vcu.r2d_button_signal || vcu.r2d_autonomous_signal);  // Combined R2D signal
+    vcu3_frame.inv_voltage = (uint16_t)myHV500.Actual_InputVoltage;  // DC link inverter voltage
+    vcu3_frame.rpm = (uint16_t)(myHV500.Actual_ERPM / 10);           // RPM (convert from ERPM)
+    vcu3_frame.ign = (uint8_t)(ignition_manual || ignition_auto);    // Combined ignition signal
+    vcu3_frame.r2_d = (uint8_t)(r2d_manual || r2d_auto);             // Combined R2D signal
 
     // Pack the data
     int pack_result = data_dbc_vcu_3_pack(data, &vcu3_frame, sizeof(data));
@@ -644,12 +655,13 @@ void send_vcu_4(CAN_HandleTypeDef *hcan) {
 /**
  * @brief Send all VCU frames to the data bus
  * @param hcan CAN handle for the data bus
+ * @note send_vcu_3 is excluded as it requires VCU state parameters
  */
 void send_all_vcu_frames(CAN_HandleTypeDef *hcan) {
     send_vcu_0(hcan);
     send_vcu_1(hcan);
     send_vcu_2(hcan);
-    send_vcu_3(hcan);
+    // send_vcu_3 excluded - requires VCU state parameters (r2d_manual, ignition_manual, r2d_auto, ignition_auto)
     send_vcu_4(hcan);
 }
 

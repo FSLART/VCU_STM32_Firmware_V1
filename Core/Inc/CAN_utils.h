@@ -24,7 +24,7 @@ typedef struct {
     uint32_t Actual_Duty;
     uint32_t Actual_InputVoltage;
     uint32_t Actual_ACCurrent;
-    uint32_t Actual_DCCurrent;
+    int32_t Actual_DCCurrent;
     uint32_t Actual_TempController;
     uint32_t Actual_TempMotor;
     uint32_t Actual_FaultCode;
@@ -238,7 +238,8 @@ void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressur
 
 void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);
 
-void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state);
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front);
+void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
 
 void can_bus_read_ASDB(CAN_HandleTypeDef *hcan);
 
@@ -246,7 +247,7 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
 void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
 
-void can_send_st_wheel_data(CAN_HandleTypeDef *hcan, uint16_t apps, uint16_t brake, uint16_t inv_temp, uint16_t motor_temp, uint16_t bms_voltage, uint16_t soc_hv, uint16_t apps_error, uint16_t inv_voltage, uint16_t rpm, uint16_t ign_signal, uint16_t r2d_signal);
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto);
 
 /**
  * @brief CAN mailbox used for transmitting messages

@@ -29,10 +29,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1570U
-#define __APPS_MAX_BITS 2590U
+#define __APPS_MIN_BITS 1710U
+#define __APPS_MAX_BITS 2690U
 #define __APPS_TOLERANCE 50U  // tolerancia para o erro
-#define __APPS_DELTA 243U     // usado para normalizar o valor do APPS
+#define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
@@ -52,7 +52,7 @@
 
 #define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
-#define MAX_RPM_AD 1500
+#define MAX_RPM_AD 1800  // 44.17 km/h
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
@@ -328,7 +328,7 @@ float MeasureBrakePressure(uint16_t bits) {
     }
 
     // Limit maximum pressure if needed
-    const float MAX_PRESSURE = 100.0f;  // Maximum measurable pressure
+    const float MAX_PRESSURE = 250.0f;  // Maximum measurable pressure
     if (pressure > MAX_PRESSURE) {
         pressure = MAX_PRESSURE;
     }
@@ -337,17 +337,21 @@ float MeasureBrakePressure(uint16_t bits) {
 }
 
 /**
- * @brief Controls the brake light based on brake pressure
+ * @brief Controls the brake light based on brake pressure and regenerative braking
  * @param brake_pressure Current brake pressure in bar
  * @details Turns the brake light on when pressure exceeds minimum threshold
- *          and off when pressure falls below threshold
+ *          or when regenerative braking is active (negative current from HV500)
  */
 void turn_on_brake_light(uint8_t brake_pressure) {
-    // Define threshold for brake light activation (can be adjusted as needed)
-    const uint8_t BRAKE_LIGHT_THRESHOLD = 5;  // bar
+    // Define thresholds for brake light activation (can be adjusted as needed)
+    const uint8_t BRAKE_LIGHT_THRESHOLD = 5;     // bar
+    const int16_t REGEN_CURRENT_THRESHOLD = -2;  // Negative current threshold for regen braking (A)
 
-    // Check if brake pressure exceeds threshold
-    if (brake_pressure >= BRAKE_LIGHT_THRESHOLD) {
+    // Check if brake pressure exceeds threshold OR regenerative braking is active
+    bool physical_braking = (brake_pressure >= BRAKE_LIGHT_THRESHOLD);
+    bool regen_braking = (myHV500.Actual_DCCurrent < REGEN_CURRENT_THRESHOLD);
+
+    if (physical_braking || regen_braking) {
         // Turn brake light on
         HAL_GPIO_WritePin(dout1_BMS_IGN_GPIO_Port, dout1_BMS_IGN_Pin, GPIO_PIN_SET);
     } else {
@@ -690,7 +694,7 @@ void ResetEmergencySound(void) {
  * @details Sounds the buzzer with required pattern if an emergency stop is detected
  */
 void HandleEmergencyStop(void) {
-    if ((as_system.state == 4) || res.signal == 0) {
+    if ((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) {
         // Start emergency sound if not already playing or completed
         if (!vcu.emergency_sound_playing && !vcu.emergency_sound_completed) {
             StartEmergencySound();
@@ -725,7 +729,7 @@ void UpdateState(void) {
     previous_state = current_state;
 
     // Process emergency condition with highest priority
-    if (((as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
+    if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
     }
     vcu.shutdown_signal = HAL_GPIO_ReadPin(int3_shutdown_signal_GPIO_Port, int3_shutdown_signal_Pin);
@@ -735,7 +739,13 @@ void UpdateState(void) {
     // State transitions
     switch (current_state) {
         case STATE_INIT:
-            current_state = STATE_STANDBY;  // Transition to standby state after initialization
+
+            if (vcu.ignition_switch_signal || vcu.ignition_ad) {
+                current_state = STATE_INIT;
+            } else {
+                current_state = STATE_STANDBY;  // Transition to standby state after initialization
+            }
+
             break;
 
         case STATE_SHUTDOWN:
@@ -748,7 +758,7 @@ void UpdateState(void) {
         case STATE_STANDBY:
             // if precharge is request either for manual or autonomous mode start the precharge
 
-            if (vcu.ignition_switch_signal && vcu.shutdown_signal) {
+            if (vcu.ignition_switch_signal && vcu.shutdown_signal && !acu.ASMS) {
                 current_state = STATE_PRECHARGE;  // Transition to precharge state
                 vcu.manual = true;                // Set manual mode
                 vcu.autonomous = false;           // Clear autonomous mode
@@ -764,13 +774,12 @@ void UpdateState(void) {
             // either from manual or autonomous mode-
 
             // Check if precharge is complete
-            // TODO fazer a diferenca entre a tensao do inversor e do bms e ver se esta a 90% reais
             if ((!vcu.ignition_switch_signal && !vcu.ignition_ad) || !vcu.shutdown_signal) {
                 current_state = STATE_STANDBY;
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (Bypass_precharge || (bms.precharge_circuit_state == 9) || myHV500.Actual_InputVoltage > 450) {
+            } else if (Bypass_precharge || ((bms.precharge_circuit_state == 9) && myHV500.Actual_InputVoltage > 450)) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
@@ -783,7 +792,7 @@ void UpdateState(void) {
                     current_state = STATE_SHUTDOWN;
                 }
                 //} else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD)) {
-            } else if (Bypass_brake_pressure || vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) {
+            } else if (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0))) {
                 // Handle R2D button debounce
                 debounce_r2d_button();
                 if (vcu.r2d_toggle_signal) {
@@ -821,7 +830,7 @@ void UpdateState(void) {
             // serve as gateway to the computer to send the commands to the inverter
             if (!vcu.ignition_ad) {
                 current_state = STATE_STANDBY;
-            } else if (as_system.state != 3) {
+            } else if (as_system.state != 3 && as_system.state != 5) {
                 current_state = STATE_WAITING_FOR_R2D_AUTO;
             }
 
@@ -840,6 +849,7 @@ void UpdateState(void) {
         case STATE_AS_EMERGENCY:
             // printf("\n\rAS Emergency: %d\n\r", as_system.state);
 
+            // Only exit emergency state when the 9-second sound has completed
             if (!(acu.is_in_emergency) && !(as_system.state == 4) && !(res.signal == 0)) {
                 current_state = STATE_STANDBY;
                 if (!vcu.shutdown_signal) {
@@ -1010,7 +1020,6 @@ void HandleState(void) {
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_r2d_auto = current_time_r2d_auto;
             }
-
             break;
 
         case STATE_READY_MANUAL:
@@ -1026,7 +1035,6 @@ void HandleState(void) {
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_manuel = current_time_manuel;
             }
-
             break;
 
         case STATE_READY_AUTONOMOUS:
@@ -1112,7 +1120,7 @@ void debounce_r2d_button(void) {
  */
 void execute_10ms_tasks(void) {
     // Send autonomous HV signal
-    can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state);
+    can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
 
     // Send heartbeat frame on CAN2
     uint8_t data[8] = {0};
@@ -1126,9 +1134,6 @@ void execute_10ms_tasks(void) {
 
     uint32_t TxMailbox;
     HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
-
-    // Process APPS (Accelerator Pedal Position Sensor)
-    result = APPS_Process(apps2_avg, apps1_avg);
 
 #if CALIBRATE_APPS
     // If calibration is in progress, update it
@@ -1161,22 +1166,34 @@ void execute_100ms_tasks(void) {
     // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
     // printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
 
+    can_send_vcu_ign_r2d_signals(&hcan3,
+                                 vcu.ignition_switch_signal,                 // manual ignition
+                                 (current_state == STATE_READY_MANUAL),      // manual R2D
+                                 vcu.ignition_ad,                            // auto ignition
+                                 (current_state == STATE_READY_AUTONOMOUS),  // auto R2D
+                                 vcu.shutdown_signal,                        // shutdown signal
+                                 (uint8_t)current_state);                    // VCU state
+
     // Send VCU telemetry frames in rotation (one different frame each time)
     static uint8_t frame_index = 0;
 
     switch (frame_index) {
         case 0:
             send_vcu_0(&hcan1);
-            can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
+            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
+                       vcu.ignition_ad);
+
             break;
         case 1:
             send_vcu_1(&hcan1);
+            can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
             break;
         case 2:
             send_vcu_2(&hcan1);
             break;
         case 3:
-            send_vcu_3(&hcan1);
+            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
+                       vcu.ignition_ad);
             break;
         case 4:
             send_vcu_4(&hcan1);
@@ -1234,9 +1251,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // uint8_t RxData3[8];
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-        // if (RxHeader2.StdId == 0x14) {
-        //    erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-        //  printf("\n\rERPM: %d\n\r", erpm_temporary);
+        if (RxHeader2.StdId == 0x14) {
+            erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
+            printf("\n\rERPM: %d\n\r", erpm_temporary);
+        }
         //} else {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
@@ -1291,7 +1309,7 @@ int main(void) {
     MX_GPIO_Init();
     MX_DMA_Init();
     MX_USART1_UART_Init();
-    MX_ADC3_Init();
+    // MX_ADC3_Init();
     MX_ADC1_Init();
     MX_ADC2_Init();
     MX_CAN3_Init();
@@ -1300,7 +1318,10 @@ int main(void) {
     MX_TIM1_Init();
     MX_TIM4_Init();
     MX_USART3_UART_Init();
+    MX_TIM2_Init();
+
     /* USER CODE BEGIN 2 */
+    HAL_TIM_Base_Start_IT(&htim2);
 
     // Configure filters with different banks
     CAN1_Filter_Config();
@@ -1374,7 +1395,7 @@ int main(void) {
         // Example for 1000ms (1Hz) tasks:
         // static uint32_t previous_tick_1s = 0;
         // if (current_tick - previous_tick_1s >= 1000) {
-        //     execute_1s_tasks();
+        //     execute_1s_tasks();s
         //     previous_tick_1s = current_tick;
         // }
     }
@@ -1430,6 +1451,17 @@ void SystemClock_Config(void) {
 }
 
 /* USER CODE BEGIN 4 */
+/* Timer interrupt callback */
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+    // if (htim->Instance == htim2) {
+    //   10ms interrupt code here
+    // HAL_GPIO_TogglePin(GPIOD, LED_PWT_Pin);
+    // Process APPS (Accelerator Pedal Position Sensor)
+    result = APPS_Process(apps2_avg, apps1_avg);
+    //}
+    // Update moving average with new APPS values
+    MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+}
 
 /* USER CODE END 4 */
 
