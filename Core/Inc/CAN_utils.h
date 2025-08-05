@@ -19,53 +19,53 @@ typedef struct {
 
 /*data stucture for interating with the HV500 inverter*/
 typedef struct {
-    // Received data
-    uint32_t Actual_ERPM;
-    uint32_t Actual_Duty;
-    uint32_t Actual_InputVoltage;
-    uint32_t Actual_ACCurrent;
-    int32_t Actual_DCCurrent;
-    uint32_t Actual_TempController;
-    uint32_t Actual_TempMotor;
-    uint32_t Actual_FaultCode;
-    uint32_t Actual_FOC_id;
-    uint32_t Actual_FOC_iq;
-    uint32_t Actual_Throttle;
-    uint32_t Actual_Brake;
-    uint32_t Digital_input_1;
-    uint32_t Digital_input_2;
-    uint32_t Digital_input_3;
-    uint32_t Digital_input_4;
-    uint32_t Digital_output_1;
-    uint32_t Digital_output_2;
-    uint32_t Digital_output_3;
-    uint32_t Digital_output_4;
-    uint32_t Drive_enable;
-    uint32_t Capacitor_temp_limit;
-    uint32_t DC_current_limit;
-    uint32_t Drive_enable_limit;
-    uint32_t IGBT_accel_limit;
-    uint32_t IGBT_temp_limit;
-    uint32_t Input_voltage_limit;
-    uint32_t Motor_accel_limit;
-    uint32_t Motor_temp_limit;
-    uint32_t RPM_min_limit;
-    uint32_t RPM_max_limit;
-    uint32_t Power_limit;
-    uint32_t CAN_map_version;
+    int32_t Actual_ERPM;            // 32-bit signed, bytes 0-3
+    int16_t Actual_Duty;            // 16-bit signed, bytes 4-5, scale 10
+    uint16_t Actual_InputVoltage;   // 16-bit unsigned, bytes 6-7
+    int16_t Actual_ACCurrent;       // 16-bit signed, bytes 0-1, scale 10
+    int16_t Actual_DCCurrent;       // 16-bit signed, bytes 2-3, scale 10
+    int16_t Actual_TempController;  // 16-bit signed, bytes 0-1, scale 10
+    int16_t Actual_TempMotor;       // 16-bit signed, bytes 2-3, scale 10
+    uint8_t Actual_FaultCode;       // 8-bit unsigned, byte 4
+    int32_t Actual_FOC_id;          // 32-bit signed, bytes 0-3, scale 100
+    int32_t Actual_FOC_iq;          // 32-bit signed, bytes 4-7, scale 100
+    int8_t Actual_Throttle;         // 8-bit signed, byte 0
+    int8_t Actual_Brake;            // 8-bit signed, byte 1
+    uint8_t Digital_input_1;        // 1-bit, bit 16
+    uint8_t Digital_input_2;        // 1-bit, bit 17
+    uint8_t Digital_input_3;        // 1-bit, bit 18
+    uint8_t Digital_input_4;        // 1-bit, bit 19
+    uint8_t Digital_output_1;       // 1-bit, bit 20
+    uint8_t Digital_output_2;       // 1-bit, bit 21
+    uint8_t Digital_output_3;       // 1-bit, bit 22
+    uint8_t Digital_output_4;       // 1-bit, bit 23
+    uint8_t Drive_enable;           // 1-bit, bit 24
+    uint8_t Capacitor_temp_limit;   // 1-bit, bit 32
+    uint8_t DC_current_limit;       // 1-bit, bit 33
+    uint8_t Drive_enable_limit;     // 1-bit, bit 34
+    uint8_t IGBT_accel_limit;       // 1-bit, bit 35
+    uint8_t IGBT_temp_limit;        // 1-bit, bit 36
+    uint8_t Input_voltage_limit;    // 1-bit, bit 37
+    uint8_t Motor_accel_limit;      // 1-bit, bit 38
+    uint8_t Motor_temp_limit;       // 1-bit, bit 39
+    uint8_t RPM_min_limit;          // 1-bit, bit 40
+    uint8_t RPM_max_limit;          // 1-bit, bit 41
+    uint8_t Power_limit;            // 1-bit, bit 42
+    uint8_t CAN_map_version;        // 8-bit unsigned, byte 7
 
-    uint16_t SetCurrent;
-    uint16_t SetBrakeCurrent;
-    uint32_t SetERPM;
-    uint16_t SetPosition;
-    uint16_t SetRelativeCurrent;
-    uint16_t SetRelativeBrakeCurrent;
-    uint32_t SetDigitalOutput;
-    uint16_t SetMaxACCurrent;
-    uint16_t SetMaxACBrakeCurrent;
-    uint16_t SetMaxDCCurrent;
-    uint16_t SetMaxDCBrakeCurrent;
-    uint8_t DriveEnable;
+    // Transmit data (command values to send to HV500)
+    int16_t SetCurrent;               // Set AC current, 16-bit signed, scale 10
+    int16_t SetBrakeCurrent;          // Set brake current, 16-bit signed, scale 10 (positive only)
+    int32_t SetERPM;                  // Set speed (ERPM), 32-bit signed
+    int16_t SetPosition;              // Set position, 16-bit signed, scale 10
+    int16_t SetRelativeCurrent;       // Set relative current, 16-bit signed, scale 10 (-100 to +100%)
+    int16_t SetRelativeBrakeCurrent;  // Set relative brake current, 16-bit signed, scale 10 (0 to 100%)
+    uint8_t SetDigitalOutput;         // Set digital output, 4-bit values (bits 0-3)
+    int16_t SetMaxACCurrent;          // Set max AC current, 16-bit signed, scale 10
+    int16_t SetMaxACBrakeCurrent;     // Set max AC brake current, 16-bit signed, scale 10 (negative only)
+    int16_t SetMaxDCCurrent;          // Set max DC current, 16-bit signed, scale 10
+    int16_t SetMaxDCBrakeCurrent;     // Set max DC brake current, 16-bit signed, scale 10 (negative only)
+    uint8_t DriveEnable;              // Drive enable, 8-bit unsigned (0 or 1)
 } HV500;
 
 typedef enum {
