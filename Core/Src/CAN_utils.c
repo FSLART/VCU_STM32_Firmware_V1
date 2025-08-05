@@ -305,6 +305,11 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 
 void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
     switch (RxHeader.StdId) {
+        case CAN_PWT_BMS_ID_3:
+            bms.high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
+            bms.low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
+            bms.precharge_circuit_state = data[6];
+            break;
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
             myHV500.Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
             // printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
@@ -364,13 +369,6 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
             bms.low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
             bms.avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
             break;
-
-        case CAN_PWT_BMS_ID_3:
-            bms.high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
-            bms.low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
-            bms.precharge_circuit_state = data[6];
-            break;
-
         default:
             break;
     }

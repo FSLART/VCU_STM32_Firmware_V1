@@ -779,7 +779,7 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (Bypass_precharge || ((bms.precharge_circuit_state == 9) && myHV500.Actual_InputVoltage > 450)) {
+            } else if (Bypass_precharge || bms.precharge_circuit_state == 9) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
