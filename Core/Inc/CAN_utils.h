@@ -67,7 +67,6 @@ typedef struct {
     uint16_t SetMaxDCBrakeCurrent;
     uint8_t DriveEnable;
 } HV500;
-extern volatile HV500 myHV500;
 
 typedef enum {
     AS_STATE_OFF = 1,    // System is off or not initialized
@@ -84,7 +83,6 @@ typedef struct {
     AS_State_t state;
     uint8_t ready_to_drive_ad;
 } AS_System_t;
-extern volatile AS_System_t as_system;
 
 typedef struct {
     uint8_t mission_select;
@@ -92,7 +90,6 @@ typedef struct {
     uint8_t ASMS;
     bool is_in_emergency;
 } ACU_t;
-extern volatile ACU_t acu;
 
 typedef enum {
     RES_SIGNAL_EMERGENCY = 0,
@@ -105,7 +102,6 @@ typedef struct {
     Res_Signal_t signal;  // Current signal state
     // uint8_t signal;
 } RES_t;
-extern volatile RES_t res;
 
 typedef struct {
     uint16_t instant_voltage;
@@ -129,7 +125,6 @@ typedef struct {
     uint8_t precharge_circuit_state;
 
 } BMSvars_t;
-extern volatile BMSvars_t bms;
 
 /**
  * @brief Sends a CAN message
@@ -241,13 +236,18 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front);
 void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
 
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan);
+void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res);
 
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res);
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data);
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500);
 
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto);
+void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500);
+void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms);
+void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500);
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500);
+void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu);
 
 /**
  * @brief CAN mailbox used for transmitting messages

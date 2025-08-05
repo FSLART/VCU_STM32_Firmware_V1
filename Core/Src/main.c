@@ -1179,24 +1179,24 @@ void execute_100ms_tasks(void) {
 
     switch (frame_index) {
         case 0:
-            send_vcu_0(&hcan1);
+            send_vcu_0(&hcan1, &myHV500);
             send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
-                       vcu.ignition_ad);
+                       vcu.ignition_ad, &myHV500);
 
             break;
         case 1:
-            send_vcu_1(&hcan1);
+            send_vcu_1(&hcan1, &myHV500, &bms);
             can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
             break;
         case 2:
-            send_vcu_2(&hcan1);
+            send_vcu_2(&hcan1, &myHV500);
             break;
         case 3:
             send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
-                       vcu.ignition_ad);
+                       vcu.ignition_ad, &myHV500);
             break;
         case 4:
-            send_vcu_4(&hcan1);
+            send_vcu_4(&hcan1, &acu);
             break;
     }
 
@@ -1215,7 +1215,7 @@ void execute_immediate_tasks(void) {
         CAN_RxHeaderTypeDef RxHeader;
         uint8_t RxData[8];
         if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-            decode_auto_bus(RxHeader, RxData);
+            decode_auto_bus(RxHeader, RxData, &as_system, &acu, &res);
         }
     }
 
@@ -1253,13 +1253,13 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
         if (RxHeader2.StdId == 0x14) {
             erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-            printf("\n\rERPM: %d\n\r", erpm_temporary);
+            // printf("\n\rERPM: %d\n\r", erpm_temporary);
         }
         //} else {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
 
-        can_filter_id_bus2(RxHeader2, RxData2);
+        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500);
     }
 }
 

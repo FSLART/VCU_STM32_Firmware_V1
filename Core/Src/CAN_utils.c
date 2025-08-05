@@ -42,7 +42,7 @@ void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
 }
 
 // Implement can_bus_read_ASDB function to handle messages from autonomous system
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan) {
+void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
     CAN_RxHeaderTypeDef RxHeader;
     uint8_t data[8];
 
@@ -98,15 +98,15 @@ void can_bus_read_ASDB(CAN_HandleTypeDef *hcan) {
 
         case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
             // Handle Response message
-            struct autonomous_temporary_res_t res;
-            autonomous_temporary_res_unpack(&res, data, sizeof(data));
+            struct autonomous_temporary_res_t res_msg;
+            autonomous_temporary_res_unpack(&res_msg, data, sizeof(data));
             // Check for emergency signal
-            if (res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_EMERGENCY_CHOICE) {
+            if (res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_EMERGENCY_CHOICE) {
                 // vcu.AS_emergency = true;
                 // HAL_GPIO_WritePin(LED_DATA_GPIO_Port, LED_DATA_Pin, GPIO_PIN_RESET);
 
-            } else if (res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_CHOICE ||
-                       res.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_2_CHOICE) {
+            } else if (res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_CHOICE ||
+                       res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_2_CHOICE) {
                 // vcu.AS_emergency = false;
 
                 // blink data led
@@ -303,71 +303,71 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500) {
     switch (RxHeader.StdId) {
         case CAN_PWT_BMS_ID_3:
-            bms.high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
-            bms.low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
-            bms.precharge_circuit_state = data[6];
+            bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
+            bms->low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
+            bms->precharge_circuit_state = data[6];
             break;
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
-            myHV500.Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
-            // printf("Actual ERPM: %ld\n", myHV500.Actual_ERPM);
-            myHV500.Actual_Duty = MAP_DECODE_Actual_Duty(data);
-            myHV500.Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
+            hv500->Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
+            // printf("Actual ERPM: %ld\n", hv500->Actual_ERPM);
+            hv500->Actual_Duty = MAP_DECODE_Actual_Duty(data);
+            hv500->Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
             break;
 
         case CAN_HV500_AC_DC_current_ID:
-            myHV500.Actual_ACCurrent = MAP_DECODE_Actual_ACCurrent(data);
-            myHV500.Actual_DCCurrent = MAP_DECODE_Actual_DCCurrent(data);
+            hv500->Actual_ACCurrent = MAP_DECODE_Actual_ACCurrent(data);
+            hv500->Actual_DCCurrent = MAP_DECODE_Actual_DCCurrent(data);
             break;
 
         case CAN_HV500_Temperatures_ID:
-            myHV500.Actual_TempController = MAP_DECODE_Actual_TempController(data);
-            myHV500.Actual_TempMotor = MAP_DECODE_Actual_TempMotor(data);
-            myHV500.Actual_FaultCode = MAP_DECODE_Actual_FaultCode(data);
+            hv500->Actual_TempController = MAP_DECODE_Actual_TempController(data);
+            hv500->Actual_TempMotor = MAP_DECODE_Actual_TempMotor(data);
+            hv500->Actual_FaultCode = MAP_DECODE_Actual_FaultCode(data);
             break;
 
         case CAN_HV500_FOC_ID:
-            myHV500.Actual_FOC_id = MAP_DECODE_Actual_FOC_id(data);
-            myHV500.Actual_FOC_iq = MAP_DECODE_Actual_FOC_iq(data);
+            hv500->Actual_FOC_id = MAP_DECODE_Actual_FOC_id(data);
+            hv500->Actual_FOC_iq = MAP_DECODE_Actual_FOC_iq(data);
             break;
 
         case CAN_HV500_MISC_ID:
-            myHV500.Actual_Throttle = MAP_DECODE_Actual_Throttle(data);
-            myHV500.Actual_Brake = MAP_DECODE_Actual_Brake(data);
-            myHV500.Digital_input_1 = MAP_DECODE_Digital_input_1(data);
-            myHV500.Digital_input_2 = MAP_DECODE_Digital_input_2(data);
-            myHV500.Digital_input_3 = MAP_DECODE_Digital_input_3(data);
-            myHV500.Digital_input_4 = MAP_DECODE_Digital_input_4(data);
-            myHV500.Digital_output_1 = MAP_DECODE_Digital_output_1(data);
-            myHV500.Digital_output_2 = MAP_DECODE_Digital_output_2(data);
-            myHV500.Digital_output_3 = MAP_DECODE_Digital_output_3(data);
-            myHV500.Digital_output_4 = MAP_DECODE_Digital_output_4(data);
-            myHV500.Drive_enable = MAP_DECODE_Drive_enable(data);
-            myHV500.Capacitor_temp_limit = MAP_DECODE_Capacitor_temp_limit(data);
-            myHV500.DC_current_limit = MAP_DECODE_DC_current_limit(data);
-            myHV500.Drive_enable_limit = MAP_DECODE_Drive_enable_limit(data);
-            myHV500.IGBT_accel_limit = MAP_DECODE_IGBT_accel_limit(data);
-            myHV500.IGBT_temp_limit = MAP_DECODE_IGBT_temp_limit(data);
-            myHV500.Input_voltage_limit = MAP_DECODE_Input_voltage_limit(data);
-            myHV500.Motor_accel_limit = MAP_DECODE_Motor_accel_limit(data);
-            myHV500.Motor_temp_limit = MAP_DECODE_Motor_temp_limit(data);
-            myHV500.RPM_min_limit = MAP_DECODE_RPM_min_limit(data);
-            myHV500.RPM_max_limit = MAP_DECODE_RPM_max_limit(data);
-            myHV500.Power_limit = MAP_DECODE_Power_limit(data);
-            myHV500.CAN_map_version = MAP_DECODE_CAN_map_version(data);
+            hv500->Actual_Throttle = MAP_DECODE_Actual_Throttle(data);
+            hv500->Actual_Brake = MAP_DECODE_Actual_Brake(data);
+            hv500->Digital_input_1 = MAP_DECODE_Digital_input_1(data);
+            hv500->Digital_input_2 = MAP_DECODE_Digital_input_2(data);
+            hv500->Digital_input_3 = MAP_DECODE_Digital_input_3(data);
+            hv500->Digital_input_4 = MAP_DECODE_Digital_input_4(data);
+            hv500->Digital_output_1 = MAP_DECODE_Digital_output_1(data);
+            hv500->Digital_output_2 = MAP_DECODE_Digital_output_2(data);
+            hv500->Digital_output_3 = MAP_DECODE_Digital_output_3(data);
+            hv500->Digital_output_4 = MAP_DECODE_Digital_output_4(data);
+            hv500->Drive_enable = MAP_DECODE_Drive_enable(data);
+            hv500->Capacitor_temp_limit = MAP_DECODE_Capacitor_temp_limit(data);
+            hv500->DC_current_limit = MAP_DECODE_DC_current_limit(data);
+            hv500->Drive_enable_limit = MAP_DECODE_Drive_enable_limit(data);
+            hv500->IGBT_accel_limit = MAP_DECODE_IGBT_accel_limit(data);
+            hv500->IGBT_temp_limit = MAP_DECODE_IGBT_temp_limit(data);
+            hv500->Input_voltage_limit = MAP_DECODE_Input_voltage_limit(data);
+            hv500->Motor_accel_limit = MAP_DECODE_Motor_accel_limit(data);
+            hv500->Motor_temp_limit = MAP_DECODE_Motor_temp_limit(data);
+            hv500->RPM_min_limit = MAP_DECODE_RPM_min_limit(data);
+            hv500->RPM_max_limit = MAP_DECODE_RPM_max_limit(data);
+            hv500->Power_limit = MAP_DECODE_Power_limit(data);
+            hv500->CAN_map_version = MAP_DECODE_CAN_map_version(data);
             break;
 
         case CAN_PWT_BMS_ID_1:
-            bms.instant_voltage = MAP_DECODE_PWT_BMS_PACK_INSTANT_VOLTAGE(data);
-            bms.soc = MAP_DECODE_PWT_BMS_PACK_SOC(data);
+            bms->instant_voltage = MAP_DECODE_PWT_BMS_PACK_INSTANT_VOLTAGE(data);
+            bms->soc = MAP_DECODE_PWT_BMS_PACK_SOC(data);
             break;
 
         case CAN_PWT_BMS_ID_2:
-            bms.high_cell_voltage = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_VOLTAGE(data);
-            bms.low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
-            bms.avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
+            bms->high_cell_voltage = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_VOLTAGE(data);
+            bms->low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
+            bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
             break;
         default:
             break;
@@ -425,7 +425,6 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
  * @param brake_pressure_front The front brake pressure value (0-255)
  */
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front) {
-    struct autonomous_temporary_vcu_hv_t hv_signal_msg;
     uint8_t data[8];
     data[0] = hv_state;
     data[1] = brake_pressure_front;
@@ -454,7 +453,7 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  *
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
+void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
     uint8_t dlc_bits = RxHeader.DLC * 8;
     switch (RxHeader.StdId) {
         case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
@@ -462,23 +461,23 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
             autonomous_temporary_acu_ms_init(&acu_ms);
             acu_ms.mission_select = 0;
             autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
-            acu.mission_select = acu_ms.mission_select;
+            acu->mission_select = acu_ms.mission_select;
             break;
         case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
             struct autonomous_temporary_acu_ign_t acu_ign;
             autonomous_temporary_acu_ign_init(&acu_ign);
             acu_ign.ign = 0;
             autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
-            acu.ignition_ad = acu_ign.ign;
-            acu.ASMS = acu_ign.asms;
-            acu.is_in_emergency = acu_ign.emergency;
+            acu->ignition_ad = acu_ign.ign;
+            acu->ASMS = acu_ign.asms;
+            acu->is_in_emergency = acu_ign.emergency;
             break;
         case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
             struct autonomous_temporary_jetson_ms_t jetson_ms;
             autonomous_temporary_jetson_ms_init(&jetson_ms);
             jetson_ms.mission_select = 0;
             autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
-            as_system.mission_select = jetson_ms.mission_select;
+            as_system->mission_select = jetson_ms.mission_select;
             break;
         // case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
         case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
@@ -486,28 +485,28 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
             autonomous_temporary_rd_jetson_init(&rd_jetson);
             rd_jetson.rd = 0;
             autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
-            as_system.ready_to_drive_ad = rd_jetson.rd;
+            as_system->ready_to_drive_ad = rd_jetson.rd;
             break;
         case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
             struct autonomous_temporary_res_t res_ad;
             autonomous_temporary_res_init(&res_ad);
             res_ad.signal = 0;
             autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
-            res.signal = res_ad.signal;
+            res->signal = res_ad.signal;
             break;
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
             struct autonomous_temporary_target_rpm_t target_rpm;
             autonomous_temporary_target_rpm_init(&target_rpm);
             target_rpm.rpm = 0;
             autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
-            as_system.target_rpm = target_rpm.rpm;
+            as_system->target_rpm = target_rpm.rpm;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
             autonomous_temporary_as_state_init(&as_state);
             as_state.state = 0;
             autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
-            as_system.state = as_state.state;
+            as_system->state = as_state.state;
             break;
 
         default:
@@ -522,8 +521,9 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data) {
 /**
  * @brief Send VCU_ frame (0x20) - Basic pedal and power data
  * @param hcan CAN handle for the data bus
+ * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_0(CAN_HandleTypeDef *hcan) {
+void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
     struct data_dbc_vcu__t vcu_frame;
     uint8_t data[8];
 
@@ -536,8 +536,8 @@ void send_vcu_0(CAN_HandleTypeDef *hcan) {
 
     // vcu_frame.apps = (uint8_t)(result.percentage_1000 / 10);                                           // Convert from 0-1000 to 0-100%
     // vcu_frame.bps = vcu.brake_pressure;                                                                // Brake pressure from ADC
-    vcu_frame.trgt_power = (uint32_t)(myHV500.Actual_ERPM * myHV500.Actual_DCCurrent / 1000);          // Estimated target power
-    vcu_frame.cnsm_power = (uint32_t)(myHV500.Actual_InputVoltage * myHV500.Actual_DCCurrent / 1000);  // Consumed power
+    vcu_frame.trgt_power = (uint32_t)(hv500->Actual_ERPM * hv500->Actual_DCCurrent / 1000);          // Estimated target power
+    vcu_frame.cnsm_power = (uint32_t)(hv500->Actual_InputVoltage * hv500->Actual_DCCurrent / 1000);  // Consumed power
 
     // Pack the data
     int pack_result = data_dbc_vcu__pack(data, &vcu_frame, sizeof(data));
@@ -549,8 +549,10 @@ void send_vcu_0(CAN_HandleTypeDef *hcan) {
 /**
  * @brief Send VCU_1 frame (0x21) - Temperature and voltage data
  * @param hcan CAN handle for the data bus
+ * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param bms Pointer to BMSvars_t struct containing BMS data
  */
-void send_vcu_1(CAN_HandleTypeDef *hcan) {
+void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms) {
     struct data_dbc_vcu_1_t vcu1_frame;
     uint8_t data[8];
 
@@ -558,10 +560,10 @@ void send_vcu_1(CAN_HandleTypeDef *hcan) {
     data_dbc_vcu_1_init(&vcu1_frame);
 
     // Populate with actual VCU data from HV500 and BMS
-    vcu1_frame.inv_temperature = (uint16_t)myHV500.Actual_TempController;  // Inverter temperature
-    vcu1_frame.motor_temperature = (uint16_t)myHV500.Actual_TempMotor;     // Motor temperature
-    vcu1_frame.bms_voltage = bms.instant_voltage;                          // BMS voltage
-    vcu1_frame.soc_hv = bms.soc;                                           // SOC HV
+    vcu1_frame.inv_temperature = (uint16_t)hv500->Actual_TempController;  // Inverter temperature
+    vcu1_frame.motor_temperature = (uint16_t)hv500->Actual_TempMotor;     // Motor temperature
+    vcu1_frame.bms_voltage = bms->instant_voltage;                        // BMS voltage
+    vcu1_frame.soc_hv = bms->soc;                                         // SOC HV
 
     // Pack the data
     int pack_result = data_dbc_vcu_1_pack(data, &vcu1_frame, sizeof(data));
@@ -573,8 +575,9 @@ void send_vcu_1(CAN_HandleTypeDef *hcan) {
 /**
  * @brief Send VCU_2 frame (0x22) - Faults and state data
  * @param hcan CAN handle for the data bus
+ * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_2(CAN_HandleTypeDef *hcan) {
+void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
     struct data_dbc_vcu_2_t vcu2_frame;
     uint8_t data[8];
 
@@ -585,9 +588,9 @@ void send_vcu_2(CAN_HandleTypeDef *hcan) {
     // extern VCU_STATE_t current_state;  // VCU state machine
     // extern APPS_Result_t result;       // APPS error status
 
-    vcu2_frame.inv_faults = (uint16_t)myHV500.Actual_FaultCode;  // Inverter faults
-    vcu2_frame.lmt1 = (uint8_t)myHV500.RPM_max_limit;            // RPM power limit
-    vcu2_frame.lmt2 = (uint8_t)myHV500.Motor_temp_limit;         // Current limit motor temp
+    vcu2_frame.inv_faults = (uint16_t)hv500->Actual_FaultCode;  // Inverter faults
+    vcu2_frame.lmt1 = (uint8_t)hv500->RPM_max_limit;            // RPM power limit
+    vcu2_frame.lmt2 = (uint8_t)hv500->Motor_temp_limit;         // Current limit motor temp
     // vcu2_frame.vcu_state = (uint8_t)current_state;               // VCU state machine current state
     //  vcu2_frame.apps_error = (uint8_t)result.error_status;        // APPS error status
     vcu2_frame.power_plan = 0;  // Power plan switch - add variable when available
@@ -602,8 +605,13 @@ void send_vcu_2(CAN_HandleTypeDef *hcan) {
 /**
  * @brief Send VCU_3 frame (0x23) - Motor and system status
  * @param hcan CAN handle for the data bus
+ * @param r2d_manual Manual R2D signal
+ * @param ignition_manual Manual ignition signal
+ * @param r2d_auto Autonomous R2D signal
+ * @param ignition_auto Autonomous ignition signal
+ * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto) {
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500) {
     struct data_dbc_vcu_3_t vcu3_frame;
     uint8_t data[8];
 
@@ -613,10 +621,10 @@ void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, 
     // Populate with actual VCU data
     // extern VCU_Signals_t vcu;  // VCU signals structure
 
-    vcu3_frame.inv_voltage = (uint16_t)myHV500.Actual_InputVoltage;  // DC link inverter voltage
-    vcu3_frame.rpm = (uint16_t)(myHV500.Actual_ERPM / 10);           // RPM (convert from ERPM)
-    vcu3_frame.ign = (uint8_t)(ignition_manual || ignition_auto);    // Combined ignition signal
-    vcu3_frame.r2_d = (uint8_t)(r2d_manual || r2d_auto);             // Combined R2D signal
+    vcu3_frame.inv_voltage = (uint16_t)hv500->Actual_InputVoltage;  // DC link inverter voltage
+    vcu3_frame.rpm = (uint16_t)(hv500->Actual_ERPM / 10);           // RPM (convert from ERPM)
+    vcu3_frame.ign = (uint8_t)(ignition_manual || ignition_auto);   // Combined ignition signal
+    vcu3_frame.r2_d = (uint8_t)(r2d_manual || r2d_auto);            // Combined R2D signal
 
     // Pack the data
     int pack_result = data_dbc_vcu_3_pack(data, &vcu3_frame, sizeof(data));
@@ -628,8 +636,9 @@ void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, 
 /**
  * @brief Send VCU_4 frame (0x24) - System states and LV data
  * @param hcan CAN handle for the data bus
+ * @param acu Pointer to ACU_t struct containing autonomous control unit data
  */
-void send_vcu_4(CAN_HandleTypeDef *hcan) {
+void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
     struct data_dbc_vcu_4_t vcu4_frame;
     uint8_t data[8];
 
@@ -637,11 +646,11 @@ void send_vcu_4(CAN_HandleTypeDef *hcan) {
     data_dbc_vcu_4_init(&vcu4_frame);
 
     // Populate with actual VCU data
-    vcu4_frame.tcu_state = 0;                            // TCU state - replace with actual TCU state
-    vcu4_frame.acu_state = (uint8_t)acu.mission_select;  // ACU state
-    vcu4_frame.alc_state = 0;                            // ALC state - replace with actual ALC state
-    vcu4_frame.lv_soc = 0;                               // LV SOC - replace with actual LV SOC
-    vcu4_frame.lv_voltage = 0;                           // LV voltage - replace with actual LV voltage
+    vcu4_frame.tcu_state = 0;                             // TCU state - replace with actual TCU state
+    vcu4_frame.acu_state = (uint8_t)acu->mission_select;  // ACU state
+    vcu4_frame.alc_state = 0;                             // ALC state - replace with actual ALC state
+    vcu4_frame.lv_soc = 0;                                // LV SOC - replace with actual LV SOC
+    vcu4_frame.lv_voltage = 0;                            // LV voltage - replace with actual LV voltage
 
     // Pack the data
     int pack_result = data_dbc_vcu_4_pack(data, &vcu4_frame, sizeof(data));
@@ -653,14 +662,17 @@ void send_vcu_4(CAN_HandleTypeDef *hcan) {
 /**
  * @brief Send all VCU frames to the data bus
  * @param hcan CAN handle for the data bus
+ * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param bms Pointer to BMSvars_t struct containing BMS data
+ * @param acu Pointer to ACU_t struct containing autonomous control unit data
  * @note send_vcu_3 is excluded as it requires VCU state parameters
  */
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan) {
-    send_vcu_0(hcan);
-    send_vcu_1(hcan);
-    send_vcu_2(hcan);
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu) {
+    send_vcu_0(hcan, hv500);
+    send_vcu_1(hcan, hv500, bms);
+    send_vcu_2(hcan, hv500);
     // send_vcu_3 excluded - requires VCU state parameters (r2d_manual, ignition_manual, r2d_auto, ignition_auto)
-    send_vcu_4(hcan);
+    send_vcu_4(hcan, acu);
 }
 
 /**
