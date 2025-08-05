@@ -227,6 +227,9 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 void execute_10ms_tasks(void);
 void execute_100ms_tasks(void);
 void execute_immediate_tasks(void);
+
+// Button debounce function declaration
+void debounce_r2d_button(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
