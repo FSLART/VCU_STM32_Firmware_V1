@@ -20,7 +20,6 @@
 #include "main.h"
 
 #include "adc.h"
-#include "bspd.h"
 #include "can.h"
 #include "dma.h"
 #include "gpio.h"
@@ -38,6 +37,9 @@
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
 #define CALIBRATE_APPS 0
+
+#define DIGI_BSPD_ENABLE 1    // Enable digital BSPD
+#define PAU_CONTROL_ENABLE 0  // Enable power adjust utility (PAU) control
 
 #define print_state 0
 #define print_variables 0
@@ -69,6 +71,8 @@
 #include "../Inc/proportional_integral_controller.h"
 #include "APPS.h"
 #include "CAN_utils.h"
+#include "bspd.h"
+#include "pau_control.h"
 
 /* -------------------- GLOBAL VARIABLES -------------------- */
 // ADC buffers
@@ -120,6 +124,7 @@ volatile AS_System_t as_system;
 volatile ACU_t acu;
 volatile RES_t res;
 volatile BMSvars_t bms;
+volatile IVT_t ivt;
 
 /* -------------------- STATE MACHINE DEFINITIONS -------------------- */
 // VCU state enumeration
@@ -1130,6 +1135,8 @@ void execute_10ms_tasks(void) {
     // Send autonomous HV signal
     can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
 
+    can_bus_send_vcu_apps_raw(&hcan3, ADC2_APPS[0], ADC2_APPS[1], 0, 0, bspd_state.bspd_active, result.error_type, result.percentage_1000);
+
     // Send heartbeat frame on CAN2
     uint8_t data[8] = {0};
     CAN_TxHeaderTypeDef TxHeader;
@@ -1267,7 +1274,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
 
-        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500);
+        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
     }
 }
 
@@ -1462,16 +1469,19 @@ void SystemClock_Config(void) {
 /* USER CODE BEGIN 4 */
 /* Timer interrupt callback */
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
-    // if (htim->Instance == htim2) {
-    //   10ms interrupt code here
-    // HAL_GPIO_TogglePin(GPIOD, LED_PWT_Pin);
-    // Process APPS (Accelerator Pedal Position Sensor)
     MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
     result = APPS_Process(apps2_avg, apps1_avg);
 
-    apps_bspd_pau = bspd_process(&bspd_state, vcu.brake_pressure, result.percentage_1000, HAL_GetTick());
-}
+#if PAU_CONTROL_ENABLE
+    apps_bspd_pau = pau_limit_accelerator(result.percentage_1000, ivt.result_W);
+#else
+    apps_bspd_pau = result.percentage_1000;  // Use raw APPS percentage when PAU is disabled
+#endif
 
+#if DIGI_BSPD_ENABLE
+    apps_bspd_pau = bspd_process(&bspd_state, vcu.brake_pressure, apps_bspd_pau, HAL_GetTick());
+#endif
+}
 /* USER CODE END 4 */
 
 /* MPU Configuration */

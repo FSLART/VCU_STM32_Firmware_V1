@@ -303,7 +303,7 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500) {
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt) {
     switch (RxHeader.StdId) {
         case CAN_PWT_BMS_ID_3:
             bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
@@ -315,6 +315,10 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
             // printf("Actual ERPM: %ld\n", hv500->Actual_ERPM);
             hv500->Actual_Duty = MAP_DECODE_Actual_Duty(data);
             hv500->Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
+            break;
+        case 0x526:
+            // byte 2 to 5 its power in motorola (big endian)
+            ivt->result_W = (int32_t)((data[2] << 24) | (data[3] << 16) | (data[4] << 8) | data[5]);
             break;
 
         case CAN_HV500_AC_DC_current_ID:
@@ -493,14 +497,14 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             res_ad.signal = 0;
             autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
             res->signal = res_ad.signal;
-            break;/*
+            break;
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
             struct autonomous_temporary_target_rpm_t target_rpm;
             autonomous_temporary_target_rpm_init(&target_rpm);
             target_rpm.rpm = 0;
             autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm;
-            break;*/
+            break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
             autonomous_temporary_as_state_init(&as_state);
@@ -649,8 +653,8 @@ void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
     vcu4_frame.tcu_state = 0;                             // TCU state - replace with actual TCU state
     vcu4_frame.acu_state = (uint8_t)acu->mission_select;  // ACU state
     vcu4_frame.alc_state = 0;                             // ALC state - replace with actual ALC state
-    //vcu4_frame.lv_soc = 0;                                // LV SOC - replace with actual LV SOC
-    //vcu4_frame.lv_voltage = 0;                            // LV voltage - replace with actual LV voltage
+    // vcu4_frame.lv_soc = 0;                                // LV SOC - replace with actual LV SOC
+    // vcu4_frame.lv_voltage = 0;                            // LV voltage - replace with actual LV voltage
 
     // Pack the data
     int pack_result = data_dbc_vcu_4_pack(data, &vcu4_frame, sizeof(data));
@@ -689,6 +693,26 @@ void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressur
 
     // Pack brake pressure as 16-bit value (little endian)
     data.message[0] = brake_pressure;
+
+    can_bus_send(hcan, data.id, data.message, data.length);
+}
+
+void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000) {
+    can_data_t data;
+    data.id = 0x610;  // VCU Apps Raw CAN ID - adjust as needed
+    data.length = 8;
+
+    memset(data.message, 0x00, sizeof(data.message));
+
+    // Pack the data into the message
+    data.message[0] = apps1_raw;                           // Apps1 raw value
+    data.message[1] = apps2_raw;                           // Apps2 raw value
+    data.message[2] = apps_delta_raw;                      // Apps delta raw value
+    data.message[3] = cpu_temp;                            // CPU temperature
+    data.message[4] = flag_digital_bspd;                   // Digital BSPD flag
+    data.message[5] = apps_error_type;                     // Apps error type
+    data.message[6] = (uint8_t)(apps_1000 & 0xFF);         // Low byte of apps_1000
+    data.message[7] = (uint8_t)((apps_1000 >> 8) & 0xFF);  // High byte of apps_1000
 
     can_bus_send(hcan, data.id, data.message, data.length);
 }

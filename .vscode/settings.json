@@ -15,7 +15,8 @@
         "data_dbc.h": "c",
         "array": "c",
         "string": "c",
-        "string_view": "c"
+        "string_view": "c",
+        "pau_control.h": "c"
     },
     "C_Cpp.errorSquiggles": "disabled"
 }

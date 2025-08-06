@@ -126,6 +126,11 @@ typedef struct {
 
 } BMSvars_t;
 
+typedef struct {
+
+    int32_t result_W;  // Resulting power in watts
+} IVT_t;
+
 /**
  * @brief Sends a CAN message
  * @param hcan CAN handle
@@ -240,7 +245,7 @@ void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *a
 
 void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res);
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500);
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt);
 
 void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500);
 void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms);
@@ -248,6 +253,8 @@ void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500);
 void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500);
 void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
 void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu);
+
+void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 
 /**
  * @brief CAN mailbox used for transmitting messages
