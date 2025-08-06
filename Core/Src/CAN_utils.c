@@ -493,14 +493,14 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             res_ad.signal = 0;
             autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
             res->signal = res_ad.signal;
-            break;
+            break;/*
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
             struct autonomous_temporary_target_rpm_t target_rpm;
             autonomous_temporary_target_rpm_init(&target_rpm);
             target_rpm.rpm = 0;
             autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm;
-            break;
+            break;*/
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
             autonomous_temporary_as_state_init(&as_state);
@@ -649,8 +649,8 @@ void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
     vcu4_frame.tcu_state = 0;                             // TCU state - replace with actual TCU state
     vcu4_frame.acu_state = (uint8_t)acu->mission_select;  // ACU state
     vcu4_frame.alc_state = 0;                             // ALC state - replace with actual ALC state
-    vcu4_frame.lv_soc = 0;                                // LV SOC - replace with actual LV SOC
-    vcu4_frame.lv_voltage = 0;                            // LV voltage - replace with actual LV voltage
+    //vcu4_frame.lv_soc = 0;                                // LV SOC - replace with actual LV SOC
+    //vcu4_frame.lv_voltage = 0;                            // LV voltage - replace with actual LV voltage
 
     // Pack the data
     int pack_result = data_dbc_vcu_4_pack(data, &vcu4_frame, sizeof(data));

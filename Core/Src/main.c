@@ -20,6 +20,7 @@
 #include "main.h"
 
 #include "adc.h"
+#include "bspd.h"
 #include "can.h"
 #include "dma.h"
 #include "gpio.h"
@@ -108,6 +109,10 @@ volatile bool can2_rx_flag = false;
 volatile bool can3_rx_flag = false;
 
 APPS_Result_t result = {0};  // Result structure for APPS processing
+
+bspd_state_t bspd_state;
+
+uint16_t apps_bspd_pau = 0;
 
 // vars on can utils file
 volatile HV500 myHV500;
@@ -1034,7 +1039,7 @@ void HandleState(void) {
 
             if (current_time_manuel - last_can_send_time_manuel >= 5) {
                 can_bus_send_HV500_SetDriveEnable(1, &hcan2);
-                can_bus_send_HV500_SetRelCurrent(result.percentage_1000, &hcan2);
+                can_bus_send_HV500_SetRelCurrent(apps_bspd_pau, &hcan2);
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_manuel = current_time_manuel;
             }
@@ -1362,7 +1367,8 @@ int main(void) {
                                               // Calibrate APPS
 
     APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
-    res.signal = RES_SIGNAl_DEFAULT_1;                                            // start with a value different than 0 to avoid emergency state
+    bspd_init(&bspd_state);
+    res.signal = RES_SIGNAl_DEFAULT_1;  // start with a value different than 0 to avoid emergency state
     printf("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
 
 #if CALIBRATE_APPS
@@ -1460,10 +1466,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
     //   10ms interrupt code here
     // HAL_GPIO_TogglePin(GPIOD, LED_PWT_Pin);
     // Process APPS (Accelerator Pedal Position Sensor)
-    result = APPS_Process(apps2_avg, apps1_avg);
-    //}
-    // Update moving average with new APPS values
     MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+    result = APPS_Process(apps2_avg, apps1_avg);
+
+    apps_bspd_pau = bspd_process(&bspd_state, vcu.brake_pressure, result.percentage_1000, HAL_GetTick());
 }
 
 /* USER CODE END 4 */
