@@ -3,8 +3,8 @@
 #include <string.h>  // Add this for memset function
 
 // #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-#include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-#include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
+//#include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
+//#include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
 #include "../../Can-Header-Map/CAN_asdb.h"
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
@@ -499,10 +499,10 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             res->signal = res_ad.signal;
             break;
         case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
-            struct autonomous_temporary_target_rpm_t target_rpm;
-            autonomous_temporary_target_rpm_init(&target_rpm);
+            struct autonomous_temporary_vcu_rpm_t target_rpm;
+            autonomous_temporary_vcu_rpm_init(&target_rpm);
             target_rpm.rpm = 0;
-            autonomous_temporary_target_rpm_unpack(&target_rpm, data, dlc_bits);
+            autonomous_temporary_vcu_rpm_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
