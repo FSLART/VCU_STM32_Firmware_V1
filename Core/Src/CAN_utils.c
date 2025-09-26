@@ -3,8 +3,8 @@
 #include <string.h>  // Add this for memset function
 
 // #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-//#include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-//#include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
+// #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
+// #include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
 #include "../../Can-Header-Map/CAN_asdb.h"
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
@@ -13,6 +13,8 @@
 
 // RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
 #define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
+
+#pragma region Basic CAN Functions
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
@@ -40,85 +42,9 @@ void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
             break;
     }
 }
+#pragma endregion Basic CAN Functions
 
-// Implement can_bus_read_ASDB function to handle messages from autonomous system
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
-    CAN_RxHeaderTypeDef RxHeader;
-    uint8_t data[8];
-
-    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, data);
-
-    switch (RxHeader.StdId) {
-        case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
-            // Handle ACU Mission Select message
-            struct autonomous_temporary_acu_ms_t acu_ms;
-            autonomous_temporary_acu_ms_unpack(&acu_ms, data, sizeof(data));
-            // Store mission select value for later use
-            // E.g.: as_system.mission_select = acu_ms.mission_select;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
-            // Handle Jetson Mission Select message
-            struct autonomous_temporary_jetson_ms_t jetson_ms;
-            autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, sizeof(data));
-            // Store mission select value for later use
-            break;
-
-        case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
-            // Handle Target RPM message from autonomous system
-            struct autonomous_temporary_target_rpm_t target_rpm;
-            autonomous_temporary_target_rpm_unpack(&target_rpm, data, sizeof(data));
-            // Store target RPM for use in autonomous mode
-            // E.g.: as_system.target_rpm = target_rpm.rpm;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
-            // Handle ACU Ignition message
-            struct autonomous_temporary_acu_ign_t acu_ign;
-            autonomous_temporary_acu_ign_unpack(&acu_ign, data, sizeof(data));
-            // Update VCU signals based on ignition state
-            // vcu.ignition_ad = acu_ign.ign;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-            // Handle Ready to Drive signal from Jetson
-            struct autonomous_temporary_rd_jetson_t rd_jetson;
-            autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, sizeof(data));
-            // Update R2D signal from autonomous system
-            // vcu.r2d_autonomous_signal = (rd_jetson.rd > 0) ? true : false;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
-            // Handle Autonomous System State message
-            struct autonomous_temporary_as_state_t as_state;
-            autonomous_temporary_as_state_unpack(&as_state, data, sizeof(data));
-            // Process autonomous system state
-            // E.g.: as_system.state = as_state.state;
-            break;
-
-        case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
-            // Handle Response message
-            struct autonomous_temporary_res_t res_msg;
-            autonomous_temporary_res_unpack(&res_msg, data, sizeof(data));
-            // Check for emergency signal
-            if (res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_EMERGENCY_CHOICE) {
-                // vcu.AS_emergency = true;
-                // HAL_GPIO_WritePin(LED_DATA_GPIO_Port, LED_DATA_Pin, GPIO_PIN_RESET);
-
-            } else if (res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_CHOICE ||
-                       res_msg.signal == AUTONOMOUS_TEMPORARY_RES_SIGNAL_GO_SIGNAL_2_CHOICE) {
-                // vcu.AS_emergency = false;
-
-                // blink data led
-                // HAL_GPIO_WritePin(LED_DATA_GPIO_Port, LED_DATA_Pin, GPIO_PIN_SET);
-            }
-            break;
-
-        default:
-            // Unknown message ID
-            break;
-    }
-}
+#pragma region HV500 Control Functions
 
 /*
 ░█████╗░░█████╗░███╗░░██╗  ██████╗░  ░░░░░░██████╗░░█████╗░░██╗░░░░░░░██╗███████╗██████╗░████████╗██████╗░░█████╗░██╗███╗░░██╗
@@ -272,6 +198,7 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
     can_bus_send(hcan, data.id, data.message, data.length);
 }
 
+/*Send_CAN_HV500_SetDriveEnableLimit*/
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan) {
     can_data_t data;
     data.id = CAN_PWT_VCU_ID_1;
@@ -379,7 +306,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
 }
 
 /*======================================= Autonomous bus =======================================*/
-
+#pragma region Autonomous Bus
 /**
  * @brief Sends rpm to the autonomous system
  *
@@ -414,7 +341,7 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
 
     // printf("RPM: %ld , RPM_uint16_t: %d \n", rpm, rpm_u16);
     can_data_t data;
-    data.id = 0x510;
+    data.id = 0x509;
     data.length = 2;
     data.message[0] = rpm_u16 & 0xFF;         // Low byte (LSB first)
     data.message[1] = (rpm_u16 >> 8) & 0xFF;  // High byte (MSB second)
@@ -498,12 +425,12 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
             res->signal = res_ad.signal;
             break;
-        case AUTONOMOUS_TEMPORARY_TARGET_RPM_FRAME_ID:
-            struct autonomous_temporary_vcu_rpm_t target_rpm;
+        case AUTONOMOUS_TEMPORARY_RPM_TARGET_FRAME_ID:
+            struct autonomous_temporary_rpm_target_t target_rpm;
             autonomous_temporary_vcu_rpm_init(&target_rpm);
-            target_rpm.rpm = 0;
+            target_rpm.rpm_target = 0;
             autonomous_temporary_vcu_rpm_unpack(&target_rpm, data, dlc_bits);
-            as_system->target_rpm = target_rpm.rpm;
+            as_system->target_rpm = target_rpm.rpm_target;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;
@@ -517,6 +444,7 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             break;
     }
 }
+#pragma endregion Autonomous Bus
 
 // ----------------------------------------------
 //---------- SEND DATA TO DATA BUS -----------

@@ -55,10 +55,13 @@
 
 #define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
+#define SHUTDOWN_DEBOUNCE_TIME_MS 50  // Shutdown signal debounce time in milliseconds
+#define IGNITION_DEBOUNCE_TIME_MS 50  // Ignition switch debounce time in milliseconds
+
 #define MAX_RPM_AD 1800  // 44.17 km/h
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
-
+#pragma region Includes
 /* -------------------- STANDARD INCLUDES -------------------- */
 #include <stdbool.h>
 #include <stdint.h>
@@ -74,7 +77,9 @@
 #include "bspd.h"
 #include "pau_control.h"
 
+#pragma endregion Includes
 /* -------------------- GLOBAL VARIABLES -------------------- */
+#pragma region Global Variables
 // ADC buffers
 __attribute__((section(".adcarray"))) uint16_t ADC1_VAL[4];
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
@@ -202,6 +207,8 @@ VCU_Signals_t vcu = {
     // All other fields will be initialized to 0/false by default
 };
 
+#pragma endregion Global Variables
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -226,6 +233,7 @@ VCU_Signals_t vcu = {
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
+#pragma region Function Prototypes
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
@@ -240,6 +248,9 @@ void execute_immediate_tasks(void);
 
 // Button debounce function declaration
 void debounce_r2d_button(void);
+void debounce_shutdown_signal(void);
+void debounce_ignition_switch(void);
+#pragma endregion Function Prototypes
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -734,6 +745,8 @@ void print_state_transition(VCU_STATE_t from, VCU_STATE_t to) {
     printf("\n\rState transition: %s -> %s\n", state_names[from], state_names[to]);
 }
 
+#pragma region UPDATE STATE
+
 /**
  * @brief Update the state of the VCU based on inputs and conditions
  */
@@ -745,8 +758,9 @@ void UpdateState(void) {
     if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
     }
-    vcu.shutdown_signal = HAL_GPIO_ReadPin(int3_shutdown_signal_GPIO_Port, int3_shutdown_signal_Pin);
-    vcu.ignition_switch_signal = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
+
+    debounce_shutdown_signal();         // Update shutdown signal with debounce
+    debounce_ignition_switch();         // Update ignition switch signal with debounce
     vcu.ignition_ad = acu.ignition_ad;  // Read ignition signal from autonomous system
 
     // State transitions
@@ -962,7 +976,9 @@ void UpdateState(void) {
         }
     }
 }
+#pragma endregion UPDATE STATE
 
+#pragma region HANDLE STATE
 /**
  * @brief Handle actions specific to the current state
  */
@@ -1057,22 +1073,32 @@ void HandleState(void) {
 
             if (current_time_auto - last_can_send_time_auto >= 10) {
                 can_bus_send_HV500_SetDriveEnable(1, &hcan2);
+                // finished
+                if (as_system.state == 5) {
+                    can_bus_send_HV500_SetERPM(0, &hcan2);
+                    can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
+                    // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
+                    can_bus_send_bms_precharge_state(1, &hcan2);
+                    last_can_send_time_auto = current_time_auto;
 
-                if (as_system.target_rpm > MAX_RPM_AD) {
-                    as_system.target_rpm = MAX_RPM_AD;
-                } else if (as_system.target_rpm < 0) {
-                    as_system.target_rpm = 0;
+                    // driving
+                } else if (as_system.state == 3) {
+                    if (as_system.target_rpm > MAX_RPM_AD) {
+                        as_system.target_rpm = MAX_RPM_AD;
+                    } else if (as_system.target_rpm < 0) {
+                        as_system.target_rpm = 0;
+                    }
+
+                    uint32_t erpm = as_system.target_rpm * 10;
+                    can_bus_send_HV500_SetERPM(erpm, &hcan2);
+                    can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
+                    // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
+                    can_bus_send_bms_precharge_state(1, &hcan2);
+                    last_can_send_time_auto = current_time_auto;
+
+                    // printf("\n\rRPM: %d\n\r", myHV500.Actual_ERPM / 10);
+                    // printf("\n\rTarget RPM: %d\n\r", as_system.target_rpm);
                 }
-
-                uint32_t erpm = as_system.target_rpm * 10;
-                can_bus_send_HV500_SetERPM(erpm, &hcan2);
-                can_send_vcu_rpm(&hcan3, erpm_temporary);
-                // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
-                can_bus_send_bms_precharge_state(1, &hcan2);
-                last_can_send_time_auto = current_time_auto;
-
-                // printf("\n\rRPM: %d\n\r", myHV500.Actual_ERPM / 10);
-                // printf("\n\rTarget RPM: %d\n\r", as_system.target_rpm);
             }
             break;
 
@@ -1089,6 +1115,7 @@ void HandleState(void) {
             break;
     }
 }
+#pragma endregion HANDLE STATE
 
 // Time-based debounce for R2D button
 void debounce_r2d_button(void) {
@@ -1123,6 +1150,62 @@ void debounce_r2d_button(void) {
 
     // Update raw signal for any code that needs it
     vcu.r2d_button_signal = stable_state;
+}
+
+// Time-based debounce for shutdown signal
+void debounce_shutdown_signal(void) {
+    static uint32_t last_debounce_time = 0;
+    static bool last_reading = false;
+    static bool stable_state = false;
+
+    bool current_reading = HAL_GPIO_ReadPin(int3_shutdown_signal_GPIO_Port, int3_shutdown_signal_Pin);
+
+    // If state changed, reset debounce timer
+    if (current_reading != last_reading) {
+        last_debounce_time = HAL_GetTick();
+    }
+
+    // State is considered stable if it's been the same for the debounce delay
+    if ((HAL_GetTick() - last_debounce_time) > SHUTDOWN_DEBOUNCE_TIME_MS) {
+        // Update stable state only if it has been stable for the debounce time
+        if (current_reading != stable_state) {
+            stable_state = current_reading;
+        }
+    }
+
+    // Save the reading for next comparison
+    last_reading = current_reading;
+
+    // Update VCU signal with debounced value
+    vcu.shutdown_signal = stable_state;
+}
+
+// Time-based debounce for ignition switch
+void debounce_ignition_switch(void) {
+    static uint32_t last_debounce_time = 0;
+    static bool last_reading = false;
+    static bool stable_state = false;
+
+    bool current_reading = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
+
+    // If state changed, reset debounce timer
+    if (current_reading != last_reading) {
+        last_debounce_time = HAL_GetTick();
+    }
+
+    // State is considered stable if it's been the same for the debounce delay
+    if ((HAL_GetTick() - last_debounce_time) > IGNITION_DEBOUNCE_TIME_MS) {
+        // Update stable state only if it has been stable for the debounce time
+        if (current_reading != stable_state) {
+            stable_state = current_reading;
+        }
+    }
+
+    // Save the reading for next comparison
+    last_reading = current_reading;
+
+    // Update VCU signal with debounced value
+    vcu.ignition_switch_signal = stable_state;
 }
 
 /* -------------------- TIMED TASK FUNCTIONS -------------------- */
@@ -1277,9 +1360,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
     }
 }
-
+#pragma region MAIN
 /* USER CODE END 0 */
-
 /**
  * @brief  The application entry point.
  * @retval int
@@ -1417,7 +1499,7 @@ int main(void) {
     }
     /* USER CODE END 3 */
 }
-
+#pragma endregion MAIN
 /**
  * @brief System Clock Configuration
  * @retval None
