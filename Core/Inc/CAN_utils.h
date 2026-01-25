@@ -91,6 +91,12 @@ typedef struct {
     bool is_in_emergency;
 } ACU_t;
 
+typedef struct {
+    uint8_t  ignition_manual;
+    uint8_t  r2d_manual;
+    uint8_t  shutdown_signal;
+} Dashboard_t;
+
 typedef enum {
     RES_SIGNAL_EMERGENCY = 0,
     RES_SIGNAl_DEFAULT_1 = 1,

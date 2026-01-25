@@ -300,6 +300,10 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
             bms->low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
             bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
             break;
+        case 0x750:
+            dashboard->ignition_manual = data[0];
+            dashboard->r2d_manual = data[1];
+            dashboard->shutdown_signal = data[2];
         default:
             break;
     }

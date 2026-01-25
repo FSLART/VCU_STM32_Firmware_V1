@@ -50,8 +50,8 @@
 #define CAN_AUTONOMOUS &hcan3
 
 /* BYPASS VARIABLES*/
-#define Bypass_brake_pressure 0
-#define Bypass_precharge 0
+#define Bypass_brake_pressure 1
+#define Bypass_precharge 1
 
 #define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
@@ -127,6 +127,7 @@ uint16_t apps_bspd_pau = 0;
 volatile HV500 myHV500;
 volatile AS_System_t as_system;
 volatile ACU_t acu;
+volatile Dashboard_t dashboard;
 volatile RES_t res;
 volatile BMSvars_t bms;
 volatile IVT_t ivt;
@@ -1123,7 +1124,8 @@ void debounce_r2d_button(void) {
     static bool last_reading = false;
     static bool stable_state = false;
 
-    bool current_reading = HAL_GPIO_ReadPin(int2_r2d_GPIO_Port, int2_r2d_Pin);
+    //bool current_reading = HAL_GPIO_ReadPin(int2_r2d_GPIO_Port, int2_r2d_Pin);
+    bool current_reading = dashboard.r2d_button_input;
 
     // If state changed, reset debounce timer
     if (current_reading != last_reading) {
@@ -1158,7 +1160,8 @@ void debounce_shutdown_signal(void) {
     static bool last_reading = false;
     static bool stable_state = false;
 
-    bool current_reading = HAL_GPIO_ReadPin(int3_shutdown_signal_GPIO_Port, int3_shutdown_signal_Pin);
+    //bool current_reading = HAL_GPIO_ReadPin(int3_shutdown_signal_GPIO_Port, int3_shutdown_signal_Pin);
+    bool current_reading = dashboard.shutdown_signal;
 
     // If state changed, reset debounce timer
     if (current_reading != last_reading) {
@@ -1186,7 +1189,8 @@ void debounce_ignition_switch(void) {
     static bool last_reading = false;
     static bool stable_state = false;
 
-    bool current_reading = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
+    //bool current_reading = HAL_GPIO_ReadPin(int1_ign_GPIO_Port, int1_ign_Pin);
+    bool current_reading = dashboard.ignition_manual;
 
     // If state changed, reset debounce timer
     if (current_reading != last_reading) {
