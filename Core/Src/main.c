@@ -84,6 +84,17 @@
 __attribute__((section(".adcarray"))) uint16_t ADC1_VAL[4];
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 
+#include "temperature.h"
+
+static const temp_ntc_beta_cfg_t ntc_cfg = {
+    .vref = 3.3f,
+    .adc_max = 4095,
+    .r_series = 10000.0f,  // series resistor in ohms
+    .r0 = 10000.0f,        // NTC resistance at 25°C
+    .t0_c = 25.0f,
+    .beta = 3977.0f,
+};
+
 // APPS moving average variables
 uint16_t apps1_buffer[APPS_MA_WINDOW_SIZE];
 uint16_t apps2_buffer[APPS_MA_WINDOW_SIZE];
@@ -131,6 +142,7 @@ volatile Dashboard_t dashboard;
 volatile RES_t res;
 volatile BMSvars_t bms;
 volatile IVT_t ivt;
+volatile VCU_SIGN_t vcu_sign;
 
 /* -------------------- STATE MACHINE DEFINITIONS -------------------- */
 // VCU state enumeration
@@ -151,7 +163,7 @@ VCU_STATE_t current_state = STATE_INIT;   // Current state of the VCU
 VCU_STATE_t previous_state = STATE_INIT;  // Previous state of the VCU
 
 // State names for debug output
-const char *state_names[] = {
+const char* state_names[] = {
     "STATE_INIT",
     "STATE_SHUTDOWN",
     "STATE_STANDBY",
@@ -238,7 +250,7 @@ VCU_Signals_t vcu = {
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
     // Process the data
 }
 
@@ -431,7 +443,7 @@ void MovingAverage_Update(uint16_t apps1_raw, uint16_t apps2_raw) {
  * @param GPIO_Port GPIO port of the LED
  * @param GPIO_Pin GPIO pin of the LED
  */
-void heartbeat_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
+void heartbeat_nonblocking(GPIO_TypeDef* GPIO_Port, uint16_t GPIO_Pin) {
     static uint32_t previous_tick = 0;
     static uint8_t state = 0;
 
@@ -524,7 +536,7 @@ void startup_leds_animation(void) {
  * @param GPIO_Port GPIO port of the LED
  * @param GPIO_Pin GPIO pin of the LED
  */
-void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
+void led_fade_nonblocking(GPIO_TypeDef* GPIO_Port, uint16_t GPIO_Pin) {
     static uint32_t last_update_time = 0;
     static uint32_t fade_counter = 0;
     static uint32_t pwm_counter = 0;
@@ -563,7 +575,7 @@ void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
  * @param htim PWM timer handle
  * @param channel Timer channel to update
  */
-void led_fade_pwm(TIM_HandleTypeDef *htim, uint32_t channel) {
+void led_fade_pwm(TIM_HandleTypeDef* htim, uint32_t channel) {
     static uint32_t last_update_time = 0;
     static uint16_t brightness = 0;
     static int8_t direction = 1;                  // 1 = increasing, -1 = decreasing
@@ -592,6 +604,17 @@ void led_fade_pwm(TIM_HandleTypeDef *htim, uint32_t channel) {
 
         __HAL_TIM_SET_COMPARE(htim, channel, brightness);
     }
+}
+
+static void pwm_fan_set(TIM_HandleTypeDef* htim, uint32_t channel, uint8_t duty) {
+
+    //duty input: 0-100 (%), output: 0-1080 (based on TIM4 Period)
+    if (duty > 100) {
+         duty = 100;
+    }
+    uint32_t compare = (uint32_t)((duty * 1080U) / 100U);
+    __HAL_TIM_SET_COMPARE(htim, channel, compare);
+
 }
 
 /* -------------------- R2D SOUND FUNCTIONS -------------------- */
@@ -942,14 +965,14 @@ void UpdateState(void) {
                 HAL_GPIO_WritePin(GPIOD, LED_IGN_Pin, GPIO_PIN_RESET);
                 HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_RESET);
 
-                vcu.r2d_button_signal = false;                    // Reset R2D button signal
-                __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);  // Set PWM to 0% duty cycle
+                vcu.r2d_button_signal = false;  // Reset R2D button signal
+                //__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);  // Set PWM to 0% duty cycle
                 break;
 
             case STATE_PRECHARGE:
                 // Precharge state entry actions
                 HAL_GPIO_WritePin(GPIOD, LED_IGN_Pin, GPIO_PIN_SET);  // Turn on ignition LED debug
-                __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);      // Set PWM to 0% duty cycle
+                //__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 0);      // Set PWM to 0% duty cycle
 
                 break;
 
@@ -964,7 +987,7 @@ void UpdateState(void) {
             case STATE_READY_MANUAL:
             case STATE_READY_AUTONOMOUS:
 
-                __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 1000);
+                //__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 1000);
                 HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_SET);
                 StartR2DSound();
 
@@ -1027,7 +1050,7 @@ void HandleState(void) {
         case STATE_WAITING_FOR_R2D_MANUAL:
             // fade in and out the R2D LED
             led_fade_nonblocking(GPIOD, LED_R2D_Pin);
-            led_fade_pwm(&htim4, TIM_CHANNEL_1);
+            // led_fade_pwm(&htim4, TIM_CHANNEL_1);
 
             static uint32_t last_can_send_time_r2d_manual = 0;
             uint32_t current_time_r2d_manual = HAL_GetTick();
@@ -1041,7 +1064,7 @@ void HandleState(void) {
         case STATE_WAITING_FOR_R2D_AUTO:
             // Waiting indicator for autonomous mode
             led_fade_nonblocking(GPIOD, LED_R2D_Pin);
-            led_fade_pwm(&htim4, TIM_CHANNEL_1);
+            // led_fade_pwm(&htim4, TIM_CHANNEL_1);
 
             static uint32_t last_can_send_time_r2d_auto = 0;
             uint32_t current_time_r2d_auto = HAL_GetTick();
@@ -1061,7 +1084,7 @@ void HandleState(void) {
 
             if (current_time_manuel - last_can_send_time_manuel >= 5) {
                 can_bus_send_HV500_SetDriveEnable(1, &hcan2);
-                can_bus_send_HV500_SetRelCurrent(apps_bspd_pau, &hcan2);
+                // can_bus_send_HV500_SetRelCurrent(apps_bspd_pau, &hcan2); now for testing the laptop is sending by can
                 can_bus_send_bms_precharge_state(1, &hcan2);
                 last_can_send_time_manuel = current_time_manuel;
             }
@@ -1264,6 +1287,33 @@ void execute_100ms_tasks(void) {
     vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
     turn_on_brake_light(vcu.brake_pressure);
 
+    // NTC
+    int16_t temp1_deci_c = temp_ntc_adc_to_deci_c(ADC1_VAL[1], &ntc_cfg);
+    int16_t temp2_deci_c = temp_ntc_adc_to_deci_c(ADC1_VAL[2], &ntc_cfg);
+    int16_t temp3_deci_c = temp_ntc_adc_to_deci_c(ADC1_VAL[3], &ntc_cfg);
+
+    uint8_t data[8] = {0};
+    CAN_TxHeaderTypeDef TxHeader;
+    TxHeader.StdId = 0x770;
+    TxHeader.ExtId = 0;
+    TxHeader.RTR = CAN_RTR_DATA;
+    TxHeader.IDE = CAN_ID_STD;
+    TxHeader.DLC = 6;
+    TxHeader.TransmitGlobalTime = DISABLE;
+
+    data[0] = (uint8_t)(temp1_deci_c & 0xFF);
+    data[1] = (uint8_t)((temp1_deci_c >> 8) & 0xFF);
+    data[2] = (uint8_t)(temp2_deci_c & 0xFF);
+    data[3] = (uint8_t)((temp2_deci_c >> 8) & 0xFF);
+    data[4] = (uint8_t)(temp3_deci_c & 0xFF);
+    data[5] = (uint8_t)((temp3_deci_c >> 8) & 0xFF);
+
+    uint32_t TxMailbox;
+    HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
+
+    // Set fan speed based on duty cycle
+    pwm_fan_set(&htim4, TIM_CHANNEL_1, vcu_sign.fan_duty);
+
     // Debug prints (uncomment if needed)
     // printf("\n\rBrake Pressure: %d\n\r", vcu.brake_pressure);
     // printf("\n\rbits ADC_brake_pressure: %d\n\r", ADC1_VAL[0]);
@@ -1339,12 +1389,12 @@ void execute_immediate_tasks(void) {
 PUTCHAR_PROTOTYPE {
     /* Place your implementation of fputc here */
     /* e.g. write a character to the USART1 and Loop until the end of transmission */
-    HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
+    HAL_UART_Transmit(&huart3, (uint8_t*)&ch, 1, 0xFFFF);
 
     return ch;
 }
 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
     // CAN_RxHeaderTypeDef RxHeader1;
     // uint8_t RxData1[8];
     CAN_RxHeaderTypeDef RxHeader2;
@@ -1361,7 +1411,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
 
-        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
+        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt, &vcu_sign);
     }
 }
 #pragma region MAIN
@@ -1554,7 +1604,7 @@ void SystemClock_Config(void) {
 
 /* USER CODE BEGIN 4 */
 /* Timer interrupt callback */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
     result = APPS_Process(apps2_avg, apps1_avg);
 
@@ -1618,7 +1668,7 @@ void Error_Handler(void) {
  * @param  line: assert_param error line source number
  * @retval None
  */
-void assert_failed(uint8_t *file, uint32_t line) {
+void assert_failed(uint8_t* file, uint32_t line) {
     /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line number,
        ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */

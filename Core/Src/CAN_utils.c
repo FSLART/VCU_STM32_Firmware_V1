@@ -16,7 +16,7 @@
 
 #pragma region Basic CAN Functions
 
-void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
+void can_bus_send(CAN_HandleTypeDef* hcan, uint32_t id, uint8_t* data, uint8_t len) {
     CAN_TxHeaderTypeDef TxHeader;
     TxHeader.StdId = id;
     TxHeader.ExtId = 0;
@@ -31,7 +31,7 @@ void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t l
 }
 
 // read for multiple can bus
-void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
+void can_bus_read_DATADB(CAN_HandleTypeDef* hcan) {
     CAN_RxHeaderTypeDef RxHeader;
     uint8_t data[8];
 
@@ -56,7 +56,7 @@ void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
 */
 
 /*Send_CAN_HV500_SetAcCurrent*/
-void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetAcCurrent_ID;
     data.length = 8;
@@ -69,7 +69,7 @@ void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef *hca
 }
 
 /*Send_CAN_HV500_SetBrakeCurrent*/
-void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetBrakeCurrent_ID;
     data.length = 8;
@@ -82,7 +82,7 @@ void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDe
 }
 
 /*Send_CAN_HV500_SetERPM*/
-void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetERPM_ID;
     data.length = 4;
@@ -95,7 +95,7 @@ void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef *hcan) {
 }
 
 /*Send_CAN_HV500_SetPosition*/
-void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetPosition_ID;
     data.length = 8;
@@ -108,7 +108,7 @@ void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan) 
 }
 
 /*Send_CAN_HV500_SetRelCurrent*/
-void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetRelCurrent_ID;
     data.length = 2;
@@ -121,7 +121,7 @@ void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef *h
 }
 
 /*Send_CAN_HV500_SetRelBrakeCurrent*/
-void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetRelBrakeCurrent_ID;
     data.length = 8;
@@ -134,7 +134,7 @@ void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_Handl
 }
 
 /*Send_CAN_HV500_SetMaxAcCurrent*/
-void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetMaxAcCurrent_ID;
     data.length = 8;
@@ -147,7 +147,7 @@ void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeD
 }
 
 /*Send_CAN_HV500_SetMaxAcBrakeCurrent*/
-void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetMaxAcBrakeCurrent_ID;
     data.length = 8;
@@ -160,7 +160,7 @@ void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_
 }
 
 /*CAN_HV500_SetMaxDcCurrent_ID*/
-void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetMaxDcCurrent_ID;
     data.length = 8;
@@ -173,7 +173,7 @@ void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeD
 }
 
 /*CAN_HV500_SetMaxDcBrakeCurrent_ID*/
-void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetMaxDcBrakeCurrent_ID;
     data.length = 8;
@@ -186,7 +186,7 @@ void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_
 }
 
 /*Send_CAN_HV500_SetDriveEnable*/
-void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetDriveEnable_ID;
     data.length = 1;
@@ -199,7 +199,7 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
 }
 
 /*Send_CAN_HV500_SetDriveEnableLimit*/
-void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan) {
+void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = CAN_PWT_VCU_ID_1;
     data.length = 8;
@@ -212,7 +212,7 @@ void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hca
     can_bus_send(hcan, data.id, data.message, data.length);
 }
 
-void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan) {
+void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef* hcan) {
     can_data_t data;
     data.id = 0x83;
     data.length = 1;
@@ -230,7 +230,9 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt) {
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt,
+                        VCU_SIGN_t* vcu_sign) {
+    (void)vcu_sign;
     switch (RxHeader.StdId) {
         case CAN_PWT_BMS_ID_3:
             bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
@@ -304,6 +306,9 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
             dashboard->ignition_manual = data[0];
             dashboard->r2d_manual = data[1];
             dashboard->shutdown_signal = data[2];
+        case 0x751:
+            vcu_sign->fan_duty = data[0];
+            break;
         default:
             break;
     }
@@ -317,7 +322,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
  * @param state The state of the autonomous system
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
+void can_send_vcu_rpm(CAN_HandleTypeDef* hcan, uint32_t rpm) {
     // Scale down the RPM value
     rpm = rpm / 10;
 
@@ -359,7 +364,7 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
  * @param hv_state The state of the HV (0 or 1)
  * @param brake_pressure_front The front brake pressure value (0-255)
  */
-void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front) {
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef* hcan, uint8_t hv_state, uint8_t brake_pressure_front) {
     uint8_t data[8];
     data[0] = hv_state;
     data[1] = brake_pressure_front;
@@ -370,7 +375,7 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, ui
     can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
 }
 
-void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state) {
+void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef* hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state) {
     can_data_t data;
     data.id = 0x600;
     data.length = 6;
@@ -388,7 +393,7 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  *
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
+void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, AS_System_t* as_system, ACU_t* acu, RES_t* res) {
     uint8_t dlc_bits = RxHeader.DLC * 8;
     switch (RxHeader.StdId) {
         case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
@@ -459,7 +464,7 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
  * @param hcan CAN handle for the data bus
  * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
+void send_vcu_0(CAN_HandleTypeDef* hcan, const HV500* hv500) {
     struct data_dbc_vcu__t vcu_frame;
     uint8_t data[8];
 
@@ -488,7 +493,7 @@ void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
  * @param hv500 Pointer to HV500 struct containing inverter data
  * @param bms Pointer to BMSvars_t struct containing BMS data
  */
-void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms) {
+void send_vcu_1(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms) {
     struct data_dbc_vcu_1_t vcu1_frame;
     uint8_t data[8];
 
@@ -513,7 +518,7 @@ void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bm
  * @param hcan CAN handle for the data bus
  * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
+void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500) {
     struct data_dbc_vcu_2_t vcu2_frame;
     uint8_t data[8];
 
@@ -547,7 +552,7 @@ void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
  * @param ignition_auto Autonomous ignition signal
  * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500) {
+void send_vcu_3(CAN_HandleTypeDef* hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500* hv500) {
     struct data_dbc_vcu_3_t vcu3_frame;
     uint8_t data[8];
 
@@ -574,7 +579,7 @@ void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, 
  * @param hcan CAN handle for the data bus
  * @param acu Pointer to ACU_t struct containing autonomous control unit data
  */
-void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
+void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu) {
     struct data_dbc_vcu_4_t vcu4_frame;
     uint8_t data[8];
 
@@ -603,7 +608,7 @@ void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
  * @param acu Pointer to ACU_t struct containing autonomous control unit data
  * @note send_vcu_3 is excluded as it requires VCU state parameters
  */
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu) {
+void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu) {
     send_vcu_0(hcan, hv500);
     send_vcu_1(hcan, hv500, bms);
     send_vcu_2(hcan, hv500);
@@ -616,7 +621,7 @@ void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSv
  * @param hcan CAN handle for the target bus
  * @param brake_pressure Brake pressure value (0-255 or scaled as needed)
  */
-void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressure) {
+void can_bus_send_brake_pressure(CAN_HandleTypeDef* hcan, uint16_t brake_pressure) {
     can_data_t data;
     data.id = 0x25;  // Brake pressure CAN ID - adjust as needed
     data.length = 1;
@@ -629,7 +634,7 @@ void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressur
     can_bus_send(hcan, data.id, data.message, data.length);
 }
 
-void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000) {
+void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000) {
     can_data_t data;
     data.id = 0x610;  // VCU Apps Raw CAN ID - adjust as needed
     data.length = 8;

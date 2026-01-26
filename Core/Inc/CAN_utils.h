@@ -133,10 +133,11 @@ typedef struct {
 } BMSvars_t;
 
 typedef struct {
-
     int32_t result_W;  // Resulting power in watts
 } IVT_t;
-
+typedef struct {
+    uint8_t fan_duty;
+} VCU_SIGN_t;
 /**
  * @brief Sends a CAN message
  * @param hcan CAN handle
@@ -144,84 +145,84 @@ typedef struct {
  * @param data Pointer to data buffer
  * @param len Length of data (0-8 bytes)
  */
-void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len);
+void can_bus_send(CAN_HandleTypeDef* hcan, uint32_t id, uint8_t* data, uint8_t len);
 
 /**
  * @brief Sends HV500 AC current setting
  * @param ac_current AC current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 brake current setting
  * @param brake_current Brake current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 ERPM setting
  * @param erpm ERPM value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 position setting
  * @param position Position value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 relative current setting
  * @param rel_current Relative current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 relative brake current setting
  * @param rel_brake_current Relative brake current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 maximum AC current setting
  * @param max_ac_current Maximum AC current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 maximum AC brake current setting
  * @param max_ac_brake_current Maximum AC brake current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 maximum DC current setting
  * @param max_dc_current Maximum DC current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 maximum DC brake current setting
  * @param max_dc_brake_current Maximum DC brake current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends HV500 drive enable setting
  * @param drive_enable Drive enable value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends powertrain bus message with R2D and ignition states
@@ -229,38 +230,39 @@ void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef 
  * @param ignition Ignition state
  * @param hcan CAN handle
  */
-void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
+void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef* hcan);
 
-void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan);
+void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Send brake pressure data to CAN bus
  * @param hcan CAN handle for the target bus
  * @param brake_pressure Brake pressure value (0-65535)
  */
-void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressure);
+void can_bus_send_brake_pressure(CAN_HandleTypeDef* hcan, uint16_t brake_pressure);
 
 /* Autonomous bus functions */
 
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);
+void can_send_vcu_rpm(CAN_HandleTypeDef* hcan, uint32_t rpm);
 
-void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front);
-void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef* hcan, uint8_t hv_state, uint8_t brake_pressure_front);
+void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef* hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
 
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res);
+void can_bus_read_ASDB(CAN_HandleTypeDef* hcan, AS_System_t* as_system, ACU_t* acu, RES_t* res);
 
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res);
+void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, AS_System_t* as_system, ACU_t* acu, RES_t* res);
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt);
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt,
+                        VCU_SIGN_t* vcu_sign);
 
-void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500);
-void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms);
-void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500);
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500);
-void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu);
+void send_vcu_0(CAN_HandleTypeDef* hcan, const HV500* hv500);
+void send_vcu_1(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms);
+void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500);
+void send_vcu_3(CAN_HandleTypeDef* hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500* hv500);
+void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu);
+void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu);
 
-void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
+void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 
 /**
  * @brief CAN mailbox used for transmitting messages
