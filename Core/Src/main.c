@@ -605,15 +605,15 @@ void led_fade_pwm(TIM_HandleTypeDef* htim, uint32_t channel) {
     }
 }
 
-static void pwm_fan_set(TIM_HandleTypeDef* htim, uint32_t channel, uint8_t dutty) {
-    // duty input: 0-100 (%), output: 0-9999
-    if (dutty > 100) {
-        dutty = 100;
+static void pwm_fan_set(TIM_HandleTypeDef* htim, uint32_t channel, uint8_t duty) {
+
+    //duty input: 0-100 (%), output: 0-1080 (based on TIM4 Period)
+    if (duty > 100) {
+         duty = 100;
     }
-    uint32_t compare = (uint32_t)((dutty * 9999U) / 100U);
-    // hardcode
-    compare = 6500;
+    uint32_t compare = (uint32_t)((duty * 1080U) / 100U);
     __HAL_TIM_SET_COMPARE(htim, channel, compare);
+
 }
 
 /* -------------------- R2D SOUND FUNCTIONS -------------------- */
