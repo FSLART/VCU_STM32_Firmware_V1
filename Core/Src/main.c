@@ -608,11 +608,11 @@ void led_fade_pwm(TIM_HandleTypeDef* htim, uint32_t channel) {
 
 static void pwm_fan_set(TIM_HandleTypeDef* htim, uint32_t channel, uint8_t duty) {
 
-    //duty input: 0-100 (%), output: 0-1080 (based on TIM4 Period)
+    //duty input: 0-100 (%), output: 0-665 (based on TIM4 Period)
     if (duty > 100) {
          duty = 100;
     }
-    uint32_t compare = (uint32_t)((duty * 1080U) / 100U);
+    uint32_t compare = (uint32_t)((duty * 665U) / 100U);
     __HAL_TIM_SET_COMPARE(htim, channel, compare);
 
 }
