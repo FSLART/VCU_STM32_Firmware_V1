@@ -1148,7 +1148,7 @@ void debounce_r2d_button(void) {
     static bool stable_state = false;
 
     //bool current_reading = HAL_GPIO_ReadPin(int2_r2d_GPIO_Port, int2_r2d_Pin);
-    bool current_reading = dashboard.r2d_button_input;
+    bool current_reading = dashboard.r2d_manual;
 
     // If state changed, reset debounce timer
     if (current_reading != last_reading) {
@@ -1411,7 +1411,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
 
-        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt, &vcu_sign);
+        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt, &vcu_sign, &dashboard);
     }
 }
 #pragma region MAIN

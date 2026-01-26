@@ -253,7 +253,7 @@ void can_bus_read_ASDB(CAN_HandleTypeDef* hcan, AS_System_t* as_system, ACU_t* a
 void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, AS_System_t* as_system, ACU_t* acu, RES_t* res);
 
 void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt,
-                        VCU_SIGN_t* vcu_sign);
+                        VCU_SIGN_t* vcu_sign, Dashboard_t* dashboard);
 
 void send_vcu_0(CAN_HandleTypeDef* hcan, const HV500* hv500);
 void send_vcu_1(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms);

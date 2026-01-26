@@ -231,7 +231,7 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 */
 
 void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt,
-                        VCU_SIGN_t* vcu_sign) {
+                        VCU_SIGN_t* vcu_sign, Dashboard_t* dashboard) {
     (void)vcu_sign;
     switch (RxHeader.StdId) {
         case CAN_PWT_BMS_ID_3:
@@ -306,6 +306,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* 
             dashboard->ignition_manual = data[0];
             dashboard->r2d_manual = data[1];
             dashboard->shutdown_signal = data[2];
+            break;
         case 0x751:
             vcu_sign->fan_duty = data[0];
             break;
