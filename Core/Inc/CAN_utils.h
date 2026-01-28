@@ -257,10 +257,10 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* 
 
 void send_vcu_0(CAN_HandleTypeDef* hcan, const HV500* hv500);
 void send_vcu_1(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms);
-void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500);
+void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500, uint8_t vcu_state);
 void send_vcu_3(CAN_HandleTypeDef* hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500* hv500);
 void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu);
-void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu);
+void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu, uint8_t vcu_state);
 
 void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 

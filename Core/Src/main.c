@@ -1341,7 +1341,7 @@ void execute_100ms_tasks(void) {
             can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
             break;
         case 2:
-            send_vcu_2(&hcan1, &myHV500);
+            send_vcu_2(&hcan2, &myHV500, (uint8_t)current_state);
             break;
         case 3:
             send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,

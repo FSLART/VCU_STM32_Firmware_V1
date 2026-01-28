@@ -437,9 +437,9 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, AS_System_t* a
             break;
         case AUTONOMOUS_TEMPORARY_RPM_TARGET_FRAME_ID:
             struct autonomous_temporary_rpm_target_t target_rpm;
-            autonomous_temporary_vcu_rpm_init(&target_rpm);
+            autonomous_temporary_rpm_target_init(&target_rpm);
             target_rpm.rpm_target = 0;
-            autonomous_temporary_vcu_rpm_unpack(&target_rpm, data, dlc_bits);
+            autonomous_temporary_rpm_target_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm_target;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
@@ -519,7 +519,7 @@ void send_vcu_1(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bm
  * @param hcan CAN handle for the data bus
  * @param hv500 Pointer to HV500 struct containing inverter data
  */
-void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500) {
+void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500, uint8_t vcu_state) {
     struct data_dbc_vcu_2_t vcu2_frame;
     uint8_t data[8];
 
@@ -533,14 +533,14 @@ void send_vcu_2(CAN_HandleTypeDef* hcan, const HV500* hv500) {
     vcu2_frame.inv_faults = (uint16_t)hv500->Actual_FaultCode;  // Inverter faults
     vcu2_frame.lmt1 = (uint8_t)hv500->RPM_max_limit;            // RPM power limit
     vcu2_frame.lmt2 = (uint8_t)hv500->Motor_temp_limit;         // Current limit motor temp
-    // vcu2_frame.vcu_state = (uint8_t)current_state;               // VCU state machine current state
+    vcu2_frame.vcu_state = vcu_state;                             // VCU state machine current state
     //  vcu2_frame.apps_error = (uint8_t)result.error_status;        // APPS error status
     vcu2_frame.power_plan = 0;  // Power plan switch - add variable when available
 
     // Pack the data
     int pack_result = data_dbc_vcu_2_pack(data, &vcu2_frame, sizeof(data));
     if (pack_result > 0) {
-        can_bus_send(hcan, DATA_DBC_VCU_2_FRAME_ID, data, DATA_DBC_VCU_2_LENGTH);
+        can_bus_send(hcan, 0x752, data, DATA_DBC_VCU_2_LENGTH);
     }
 }
 
@@ -609,10 +609,10 @@ void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu) {
  * @param acu Pointer to ACU_t struct containing autonomous control unit data
  * @note send_vcu_3 is excluded as it requires VCU state parameters
  */
-void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu) {
+void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const HV500* hv500, const BMSvars_t* bms, const ACU_t* acu, uint8_t vcu_state) {
     send_vcu_0(hcan, hv500);
     send_vcu_1(hcan, hv500, bms);
-    send_vcu_2(hcan, hv500);
+    send_vcu_2(hcan, hv500, vcu_state);
     // send_vcu_3 excluded - requires VCU state parameters (r2d_manual, ignition_manual, r2d_auto, ignition_auto)
     send_vcu_4(hcan, acu);
 }
