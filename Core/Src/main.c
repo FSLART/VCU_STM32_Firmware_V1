@@ -66,6 +66,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <stm32f767xx.h>
 #include <stm32f7xx_hal_can.h>
 #include <stm32f7xx_hal_cortex.h>
@@ -1451,8 +1452,8 @@ int main(void) {
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
 
-    HAL_ADC_Start_DMA(&hadc1, ADC1_VAL, 4);
-    HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t *)ADC1_VAL, 4);
+    HAL_ADC_Start_DMA(&hadc2, (uint32_t *)ADC2_APPS, 2);  // Start ADC2 for APPS
                                               // Calibrate APPS
 
     APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
