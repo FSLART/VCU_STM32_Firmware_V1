@@ -111,7 +111,7 @@ void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan) 
 }
 
 /*Send_CAN_HV500_SetRelCurrent*/
-void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef *hcan) {
+void can_bus_send_HV500_SetRelCurrent(int16_t rel_current, CAN_HandleTypeDef *hcan) {
     can_data_t data;
     data.id = CAN_HV500_SetRelCurrent_ID;
     data.length = 2;
