@@ -11,6 +11,9 @@
 #include "autonomous_temporary.h"
 #include "data_dbc.h"
 
+// Placeholder autonomous torque command
+#define AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID (0x49Au)
+
 // RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
 #define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
 
@@ -431,6 +434,14 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             target_rpm.rpm_target = 0;
             autonomous_temporary_rpm_target_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm_target;
+            as_system->control_mode = AS_CONTROL_MODE_RPM;
+            as_system->last_control_cmd_ms = HAL_GetTick();
+            break;
+        case AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID:
+            // Same byte shifting as RPM target (2-byte little-endian), interpreted as signed -100..100.
+            as_system->target_torque = (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+            as_system->control_mode = AS_CONTROL_MODE_TORQUE;
+            as_system->last_control_cmd_ms = HAL_GetTick();
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
             struct autonomous_temporary_as_state_t as_state;

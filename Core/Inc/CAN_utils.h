@@ -76,9 +76,18 @@ typedef enum {
     AS_STATE_FINISHED = 5,   // Mission or task completed
 } AS_State_t;
 
+typedef enum {
+    AS_CONTROL_MODE_NONE = 0,
+    AS_CONTROL_MODE_RPM = 1,
+    AS_CONTROL_MODE_TORQUE = 2
+} AS_ControlMode_t;
+
 typedef struct {
     uint8_t mission_select;
     uint16_t target_rpm;
+    int16_t target_torque;
+    AS_ControlMode_t control_mode;
+    uint32_t last_control_cmd_ms;
     // uint8_t state;
     AS_State_t state;
     uint8_t ready_to_drive_ad;
@@ -173,7 +182,7 @@ void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan);
  * @param rel_current Relative current value
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetRelCurrent(uint32_t rel_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_HV500_SetRelCurrent(int16_t rel_current, CAN_HandleTypeDef *hcan);
 
 /**
  * @brief Sends HV500 relative brake current setting
