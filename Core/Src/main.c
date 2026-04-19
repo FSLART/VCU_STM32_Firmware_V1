@@ -57,6 +57,7 @@
 
 #define SHUTDOWN_DEBOUNCE_TIME_MS 50  // Shutdown signal debounce time in milliseconds
 #define IGNITION_DEBOUNCE_TIME_MS 50  // Ignition switch debounce time in milliseconds
+#define AUTONOMOUS_CMD_TIMEOUT_MS 200U  // Timeout for RPM/torque command frames
 
 #define MAX_RPM_AD 1800  // 44.17 km/h
 
@@ -1077,6 +1078,7 @@ void HandleState(void) {
                 // finished
                 if (as_system.state == 5) {
                     can_bus_send_HV500_SetERPM(0, &hcan2);
+                    can_bus_send_HV500_SetRelCurrent(0, &hcan2);
                     can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
                     // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                     can_bus_send_bms_precharge_state(1, &hcan2);
@@ -1084,14 +1086,28 @@ void HandleState(void) {
 
                     // driving
                 } else if (as_system.state == 3) {
-                    if (as_system.target_rpm > MAX_RPM_AD) {
-                        as_system.target_rpm = MAX_RPM_AD;
-                    } else if (as_system.target_rpm < 0) {
-                        as_system.target_rpm = 0;
+                    uint32_t elapsed_since_control_cmd = current_time_auto - as_system.last_control_cmd_ms;
+                    if ((as_system.control_mode == AS_CONTROL_MODE_NONE) || (elapsed_since_control_cmd > AUTONOMOUS_CMD_TIMEOUT_MS)) {
+                        can_bus_send_HV500_SetERPM(0, &hcan2);
+                        can_bus_send_HV500_SetRelCurrent(0, &hcan2);
+                    } else if (as_system.control_mode == AS_CONTROL_MODE_TORQUE) {
+                        int16_t target_torque = as_system.target_torque;
+                        if (target_torque > 100) {
+                            target_torque = 100;
+                        } else if (target_torque < -30) {
+                            target_torque = -30;
+                        }
+
+                        can_bus_send_HV500_SetRelCurrent(target_torque, &hcan2);
+                    } else {
+                        if (as_system.target_rpm > MAX_RPM_AD) {
+                            as_system.target_rpm = MAX_RPM_AD;
+                        }
+
+                        uint32_t erpm = as_system.target_rpm * 10;
+                        can_bus_send_HV500_SetERPM(erpm, &hcan2);
                     }
 
-                    uint32_t erpm = as_system.target_rpm * 10;
-                    can_bus_send_HV500_SetERPM(erpm, &hcan2);
                     can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
                     // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
                     can_bus_send_bms_precharge_state(1, &hcan2);
