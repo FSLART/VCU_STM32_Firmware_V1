@@ -1373,8 +1373,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         }else if (RxHeader2.StdId == 0x710) { //APPS_ADC_RAW - DBC: 122
 
         	//Fill out the variables previously populated by ADC2
+        	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is tryring to read it
         	ADC2_APPS[0] = (RxData2[1] << 8) | RxData2[0];
         	ADC2_APPS[1] = (RxData2[3] << 8) | RxData2[2];
+        	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
         	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
         } else {
