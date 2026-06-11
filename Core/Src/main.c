@@ -1341,43 +1341,6 @@ PUTCHAR_PROTOTYPE {
     return ch;
 }
 
-/*------OLD FUNCTION JUST IN CASE THERES A NEED TO REVIVE ON THE GO------*/
-
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan){
-
-	/*NOT TO BE USED CURRENTLY*/
-  if(hcan == CAN_DATA_BUS){ //if the message came in through can 1:
-    if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CAN1_RxHeader, CAN1_RxData) != HAL_OK){
-        Error_Handler();
-    } else{
-        //Message received successfully, now we can process it
-        //What do we do with the message? [IGNORE FOR NOW!!]
-        //reconstruct the 16-bit value from the 2 bytes in CAN1_RxData
-        received_CAN1 = ((uint16_t)CAN1_RxData[0] << 8) | CAN1_RxData[1];
-      }
-    /*NOT TO BE USED CURRENTLY*/
-  }else if(hcan == CAN_POWERTRAIN_BUS){ //if the message came in through can 2:
-      if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CAN2_RxHeader, CAN2_RxData) != HAL_OK){
-        Error_Handler();
-    } else{
-        //Message received successfully, now we can process it
-        //What do we do with the message?
-        received_CAN2 = ((uint16_t)CAN2_RxData[0] << 8) | CAN2_RxData[1];
-      }
-
-  }
-  else if(hcan == CAN_AUTONOMOUS){//if the message came in through can 3:
-      if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &CAN3_RxHeader, CAN3_RxData) != HAL_OK){
-        Error_Handler();
-    } else{
-        //Message received successfully, now we can process it
-        //What do we do with the message?
-        received_CAN3 = ((uint16_t)CAN3_RxData[0] << 8) | CAN3_RxData[1];
-      }
-  }
-}
-
-
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // CAN_RxHeaderTypeDef RxHeader1;
