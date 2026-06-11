@@ -37,6 +37,8 @@
 
 #define CALIBRATE_APPS 0
 
+#define MAX_APPS_TIMEOUT_MS 50 //TIMEOUT after which if no message is recieved from APPS Emergency or cut throttle comes through
+
 #define DIGI_BSPD_ENABLE 1    // Enable digital BSPD
 #define PAU_CONTROL_ENABLE 0  // Enable power adjust utility (PAU) control
 
@@ -89,6 +91,9 @@ uint16_t apps2_buffer[APPS_MA_WINDOW_SIZE];
 uint8_t apps_buffer_pos = 0;
 uint16_t apps1_avg = 0;
 uint16_t apps2_avg = 0;
+
+//APPS Loss of comms tick
+volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
 
 int value = 0;
 
@@ -1216,6 +1221,15 @@ void debounce_ignition_switch(void) {
  * @details High-frequency tasks that need precise timing
  */
 void execute_10ms_tasks(void) {
+
+	if ((HAL_GetTick() - last_apps_can_rx_time) > MAX_APPS_TIMEOUT_MS) {
+	    //at least cut off throttle...
+	    ADC2_APPS[0] = 0;
+	    ADC2_APPS[1] = 0;
+	    // Maybe trigger state emergency??
+	    // current_state = STATE_AS_EMERGENCY;
+	}
+
     // Send autonomous HV signal
     can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
 
