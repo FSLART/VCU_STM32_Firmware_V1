@@ -320,6 +320,9 @@ void CAN3_Filter_Config(void) {
  * @details Converts ADC reading to voltage, then to pressure using calibration formula.
  *          Sensor characteristics: 28.57mV/bar with 0.5V offset (0 bar = 0.5V)
  */
+
+//Criar função para receber o uint16_t reconstruí-lo (Ja tens uma dessas) e mandar para esta função)
+
 float MeasureBrakePressure(uint16_t bits) {
     // Constants for clarity
     const float ADC_MAX = 4095.0f;
