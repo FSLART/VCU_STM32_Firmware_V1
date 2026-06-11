@@ -1352,20 +1352,26 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
         if (RxHeader2.StdId == 0x14) {
+
             erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
             // printf("\n\rERPM: %d\n\r", erpm_temporary);
+
+        }else if (RxHeader2.StdId == 0x710) { //APPS_ADC_RAW - DBC: 122
+
+        	//Fill out the variables previously populated by ADC2
+        	ADC2_APPS[0] = (RxData2[1] << 8) | RxData2[0];
+        	ADC2_APPS[1] = (RxData2[3] << 8) | RxData2[2];
+
+        	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
+        } else {
+        	can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
         }
         //} else {
         //    can_filter_id_bus2(RxHeader2, RxData2);
         //}
+        //Isto é BMS e HV500 parece, metemos num else, o default so da break, poupa tempo se a ID nao cair nos casos??
+        /*can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);*/
 
-        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
-
-        //NEW CODE 11-06-2026
-
-        if (RxHeader2.StdId == 0x710) { //APPS_ADC_RAW DBC: 122
-                    erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-                }
     }
 }
 
