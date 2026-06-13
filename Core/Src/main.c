@@ -62,6 +62,12 @@
 #define MAX_RPM_AD 1800  // 44.17 km/h
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+
+/* CAN ID DEFINITIONS */
+#define APPS_ADC_RAW_ID 0x710
+#define R2D_AND_IGN_ID 0x740
+
+
 #pragma region Includes
 /* -------------------- STANDARD INCLUDES -------------------- */
 #include <stdbool.h>
@@ -1370,7 +1376,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
             erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
             // printf("\n\rERPM: %d\n\r", erpm_temporary);
 
-        }else if (RxHeader2.StdId == 0x710) { //APPS_ADC_RAW - DBC: 122
+        }else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC: 122
 
         	//Fill out the variables previously populated by ADC2
         	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is tryring to read it
