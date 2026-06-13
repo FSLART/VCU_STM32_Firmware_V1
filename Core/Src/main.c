@@ -1130,7 +1130,9 @@ void HandleState(void) {
 #pragma endregion HANDLE STATE
 
 // Time-based debounce for R2D button
-void debounce_r2d_button(void) {
+
+//---No longer needed - Comes in via CAN2----//
+/*void debounce_r2d_button(void) {
     static uint32_t last_debounce_time = 0;
     static bool last_reading = false;
     static bool stable_state = false;
@@ -1162,7 +1164,7 @@ void debounce_r2d_button(void) {
 
     // Update raw signal for any code that needs it
     vcu.r2d_button_signal = stable_state;
-}
+}*/
 
 // Time-based debounce for shutdown signal
 void debounce_shutdown_signal(void) {

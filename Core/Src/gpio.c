@@ -47,7 +47,6 @@ void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOH_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
 
@@ -63,12 +62,6 @@ void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(int1_ign_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : int2_r2d_Pin */
-  GPIO_InitStruct.Pin = int2_r2d_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(int2_r2d_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : int3_shutdown_signal_Pin */
   GPIO_InitStruct.Pin = int3_shutdown_signal_Pin;
