@@ -37,7 +37,11 @@
 
 #define CALIBRATE_APPS 0
 
-#define MAX_APPS_TIMEOUT_MS 50 //TIMEOUT after which if no message is recieved from APPS Emergency or cut throttle comes through
+/*----CAN SAFETY TIMEOUTS----*/
+#define MAX_APPS_TIMEOUT_MS 50 //TIMEOUT for APPS loss of communication
+//UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
+//#define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
+/*---------------------------*/
 
 #define DIGI_BSPD_ENABLE 1    // Enable digital BSPD
 #define PAU_CONTROL_ENABLE 0  // Enable power adjust utility (PAU) control
@@ -100,6 +104,8 @@ uint16_t apps2_avg = 0;
 
 //APPS Loss of comms tick
 volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+//UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
+//volatile uint32_t last_r2d_ign_can_rx_time = 0; //keeps track of the last time a valid 0x740 message came through
 
 int value = 0;
 
@@ -256,9 +262,9 @@ void execute_100ms_tasks(void);
 void execute_immediate_tasks(void);
 
 // Button debounce function declaration
-void debounce_r2d_button(void);
+//void debounce_r2d_button(void);
 void debounce_shutdown_signal(void);
-void debounce_ignition_switch(void);
+//void debounce_ignition_switch(void);
 #pragma endregion Function Prototypes
 /* USER CODE END PFP */
 
@@ -771,8 +777,9 @@ void UpdateState(void) {
         current_state = STATE_AS_EMERGENCY;
     }
 
-    debounce_shutdown_signal();         // Update shutdown signal with debounce
-    debounce_ignition_switch();         // Update ignition switch signal with debounce
+    //NO LONGER NEEDED
+    //debounce_shutdown_signal();         // Update shutdown signal with debounce
+    //debounce_ignition_switch();         // Update ignition switch signal with debounce
     vcu.ignition_ad = acu.ignition_ad;  // Read ignition signal from autonomous system
 
     // State transitions
@@ -831,12 +838,14 @@ void UpdateState(void) {
                     current_state = STATE_SHUTDOWN;
                 }
                 //} else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD)) {
-            } else if (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0))) {
-                // Handle R2D button debounce
-                debounce_r2d_button();
+            } else if ((Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0))) && vcu.r2d_button_signal) {
+            	current_state = STATE_READY_MANUAL;
+            	/*
+            	// Handle R2D button debounce
+                //debounce_r2d_button();
                 if (vcu.r2d_toggle_signal) {
                     current_state = STATE_READY_MANUAL;
-                }
+                }*/
             }
             break;
 
@@ -1195,7 +1204,8 @@ void debounce_shutdown_signal(void) {
 }
 
 // Time-based debounce for ignition switch
-void debounce_ignition_switch(void) {
+//IGNITION DEBOUNCE LOGIC
+/*void debounce_ignition_switch(void) {
     static uint32_t last_debounce_time = 0;
     static bool last_reading = false;
     static bool stable_state = false;
@@ -1220,7 +1230,7 @@ void debounce_ignition_switch(void) {
 
     // Update VCU signal with debounced value
     vcu.ignition_switch_signal = stable_state;
-}
+}*/
 
 /* -------------------- TIMED TASK FUNCTIONS -------------------- */
 
@@ -1237,6 +1247,12 @@ void execute_10ms_tasks(void) {
 	    // Maybe trigger state emergency??
 	    // current_state = STATE_AS_EMERGENCY;
 	}
+
+	//MAYBE WE IMPLEMENT, IF THERES TIME (NOTE: CANT KILL IGNITION LIKE THAT!!)
+	/*if ((HAL_GetTick() - last_r2d_ign_can_rx_time) > MAX_R2D_IGN_TIMEOUT_MS) {
+		    vcu.r2d_button_signal = 0;
+		    vcu.ignition_switch_signal = 0;
+		}*/
 
     // Send autonomous HV signal
     can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
@@ -1378,7 +1394,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
             erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
             // printf("\n\rERPM: %d\n\r", erpm_temporary);
 
-        }else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC: 122
+        }else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC Powertrain: 122
 
         	//Fill out the variables previously populated by ADC2
         	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is tryring to read it
@@ -1387,7 +1403,10 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
         	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
-        } else {
+        }else if(RxHeader2.StdId == R2D_AND_IGN_ID){//R2D Button and IGN button - DBC Powertrain: 123
+        	vcu.ignition_switch_signal = RxData2[0];
+			vcu.r2d_button_signal = RxData2[1];
+        }else {
         	can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
         }
         //} else {
@@ -1399,7 +1418,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     }
 }
 
-
+//----Legacy function for FIFO0 CAN Interrupt----//
 /*void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     // CAN_RxHeaderTypeDef RxHeader1;
     // uint8_t RxData1[8];
