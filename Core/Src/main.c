@@ -68,7 +68,7 @@
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
 /* CAN ID DEFINITIONS */
-//CAN 1 -DATA
+//CAN 1 - DATA
 
 //CAN 2 - POWERTRAIN
 #define APPS_ADC_RAW_ID 0x710
