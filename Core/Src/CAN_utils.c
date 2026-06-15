@@ -233,12 +233,15 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt) {
+void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt) {
     switch (RxHeader.StdId) {
         case CAN_PWT_BMS_ID_3:
             bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
             bms->low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
-            bms->precharge_circuit_state = data[6];
+            // bms->precharge_circuit_state = data[6];
+            break;
+        case 0x702:
+            bms->precharge_circuit_state = data[1];  // TODO NEW BMS PRE CHARGE STATE ID, CHECK THIS
             break;
         case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
             hv500->Actual_ERPM = MAP_DECODE_Actual_ERPM(data);

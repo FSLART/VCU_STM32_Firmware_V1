@@ -808,7 +808,8 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (Bypass_precharge || bms.precharge_circuit_state == 9) {
+                //} else if (Bypass_precharge || bms.precharge_circuit_state == 9) {
+            } else if (Bypass_precharge || bms.precharge_circuit_state == 16) {  // TODO: CHECK THIS VALUE WHIT THE BMS
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
