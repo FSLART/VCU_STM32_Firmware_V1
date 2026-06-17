@@ -1387,12 +1387,19 @@ PUTCHAR_PROTOTYPE {
 
 
 void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-    // CAN_RxHeaderTypeDef RxHeader1;
-    // uint8_t RxData1[8];
+    CAN_RxHeaderTypeDef RxHeader1;
+    uint8_t RxData1[8];
     CAN_RxHeaderTypeDef RxHeader2;
     uint8_t RxData2[8];
     CAN_RxHeaderTypeDef RxHeader3;
     uint8_t RxData3[8];
+
+    if (hcan->Instance == CAN1) {
+        if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader1, RxData1) == HAL_OK) {
+            // CAN1 (DATA bus) - message read out to drain the FIFO, not handled yet.
+        }
+        return;
+    }
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
         if (RxHeader2.StdId == 0x14) {
@@ -1422,7 +1429,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         /*can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);*/
 
     }else if(HAL_CAN_GetRxMessage(CAN_AUTONOMOUS, CAN_RX_FIFO0, &RxHeader3, RxData3) == HAL_OK){
-    	if (RxHeader2.StdId == BRAKE_PRESSURE_ID) {
+    	if (RxHeader3.StdId == BRAKE_PRESSURE_ID) {
 
     		uint16_t raw_pressure = (RxData3[1] << 8) | RxData3[0];
     		uint8_t resulting_pressure = raw_pressure*0.1;
