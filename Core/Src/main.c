@@ -82,6 +82,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 #include <stm32f767xx.h>
 #include <stm32f7xx_hal_can.h>
 #include <stm32f7xx_hal_cortex.h>
@@ -865,7 +866,7 @@ void UpdateState(void) {
             break;
 
         case STATE_READY_MANUAL:
-            debounce_r2d_button();
+            //debounce_r2d_button();
             if (!vcu.ignition_switch_signal || !vcu.shutdown_signal) {
                 // Change to standby if ignition is off
                 current_state = STATE_STANDBY;
@@ -1301,7 +1302,7 @@ void execute_10ms_tasks(void) {
 void execute_100ms_tasks(void) {
     // Read brake pressure from ADC
 	//NOW DONE BY CAN
-    vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+    //vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
     turn_on_brake_light(vcu.brake_pressure);
 
     // Debug prints (uncomment if needed)
@@ -1544,7 +1545,7 @@ int main(void)
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
 
-    HAL_ADC_Start_DMA(&hadc1, ADC1_VAL, 4);
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC1_VAL, 4);
     //HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
                                               // Calibrate APPS
 

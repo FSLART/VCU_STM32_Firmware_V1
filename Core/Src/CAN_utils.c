@@ -427,9 +427,9 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             break;
         case AUTONOMOUS_TEMPORARY_RPM_TARGET_FRAME_ID:
             struct autonomous_temporary_rpm_target_t target_rpm;
-            autonomous_temporary_vcu_rpm_init(&target_rpm);
+            autonomous_temporary_rpm_target_init(&target_rpm);
             target_rpm.rpm_target = 0;
-            autonomous_temporary_vcu_rpm_unpack(&target_rpm, data, dlc_bits);
+            autonomous_temporary_rpm_target_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm_target;
             break;
         case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
