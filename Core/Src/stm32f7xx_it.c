@@ -59,7 +59,9 @@ extern DMA_HandleTypeDef hdma_adc1;
 extern DMA_HandleTypeDef hdma_adc2;
 extern ADC_HandleTypeDef hadc1;
 extern ADC_HandleTypeDef hadc2;
+extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
+extern CAN_HandleTypeDef hcan3;
 extern TIM_HandleTypeDef htim2;
 /* USER CODE BEGIN EV */
 
@@ -219,6 +221,20 @@ void ADC_IRQHandler(void)
 }
 
 /**
+  * @brief This function handles CAN1 RX0 interrupts.
+  */
+void CAN1_RX0_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN1_RX0_IRQn 0 */
+
+  /* USER CODE END CAN1_RX0_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan1);
+  /* USER CODE BEGIN CAN1_RX0_IRQn 1 */
+
+  /* USER CODE END CAN1_RX0_IRQn 1 */
+}
+
+/**
   * @brief This function handles TIM2 global interrupt.
   */
 void TIM2_IRQHandler(void)
@@ -272,6 +288,20 @@ void CAN2_RX0_IRQHandler(void)
   /* USER CODE BEGIN CAN2_RX0_IRQn 1 */
 
   /* USER CODE END CAN2_RX0_IRQn 1 */
+}
+
+/**
+  * @brief This function handles CAN3 RX0 interrupt.
+  */
+void CAN3_RX0_IRQHandler(void)
+{
+  /* USER CODE BEGIN CAN3_RX0_IRQn 0 */
+
+  /* USER CODE END CAN3_RX0_IRQn 0 */
+  HAL_CAN_IRQHandler(&hcan3);
+  /* USER CODE BEGIN CAN3_RX0_IRQn 1 */
+
+  /* USER CODE END CAN3_RX0_IRQn 1 */
 }
 
 /* USER CODE BEGIN 1 */

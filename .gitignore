@@ -62,3 +62,10 @@ release
 *.su
 *.idb
 *.pdb
+
+# STM32CubeIDE project files (machine-specific paths inside)
+.cproject
+.project
+.mxproject
+*.launch
+*.cfg
