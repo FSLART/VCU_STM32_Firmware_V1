@@ -1,5 +1,5 @@
 #include "dbc_codec.h"
-#include "../../../T26_DBC/generated/FSIC/fsic.h"
+#include "fsic.h"
 #include "data_dbc.h"
 #include "autonomous_temporary.h"
 #include <string.h>

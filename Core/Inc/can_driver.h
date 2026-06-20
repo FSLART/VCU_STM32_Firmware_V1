@@ -19,4 +19,7 @@ bool can_driver_rx_poll(CAN_HandleTypeDef *hcan, can_msg_t *msg);
 /* Called from HAL_CAN_RxFifo0MsgPendingCallback — routes to correct queue */
 void can_driver_rx_isr(CAN_HandleTypeDef *hcan);
 
+/* Drain all TX queues — call from main loop */
+void can_driver_tx_drain(void);
+
 #endif /* CAN_DRIVER_H */

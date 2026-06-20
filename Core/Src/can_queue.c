@@ -5,6 +5,8 @@ can_queue_t can1_rx_queue;
 can_queue_t can2_rx_queue;
 can_queue_t can3_rx_queue;
 
+can_queue_t can_tx_queue;
+
 void can_queue_init(can_queue_t *q)
 {
     q->head = 0;

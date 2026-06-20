@@ -19,14 +19,15 @@
 /* USER CODE BEGIN Includes */
 #include <stdbool.h>
 #include <stdint.h>
-#include <string.h>
 #include <stm32f767xx.h>
 #include <stm32f7xx_hal_can.h>
+#include <string.h>
 
 /* ---- Test isolation flags ---- */
-#define TEST_CAN_IRQ     0   /* 1 = use can_driver for interrupt-driven RX */
-#define TEST_CAN_QUEUE   0   /* 1 = drain queues each loop, expose debug vars */
-#define TEST_DBC_CODEC   0   /* 1 = run DBC encode/decode demo once */
+#define TEST_CAN_IRQ 1   /* 1 = use can_driver for interrupt-driven RX */
+#define TEST_CAN_QUEUE 1 /* 1 = drain queues each loop, expose debug vars */
+// #define TEST_DBC_CODEC   1   /* 1 = run DBC encode/decode demo once */
+#define TEST_CAN_TX 1 /* 1 = send periodic test frames on all 3 buses */
 
 #if TEST_CAN_IRQ
 #include "can_driver.h"
@@ -35,7 +36,10 @@
 #include "can_queue.h"
 #endif
 #if TEST_DBC_CODEC
+#include "autonomous_temporary.h"
+#include "data_dbc.h"
 #include "dbc_codec.h"
+#include "fsic.h"
 #endif
 
 /* USER CODE END Includes */
@@ -78,7 +82,7 @@ can_msg_t last_can3_msg = {0};
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-static void MPU_Config(void);
+void MPU_Config(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -86,7 +90,7 @@ static void MPU_Config(void);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 /* ---- CAN RX interrupt callback ---- */
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
 #if TEST_CAN_IRQ
     /* New path: route all three buses through can_driver */
     can_driver_rx_isr(hcan);
@@ -161,14 +165,14 @@ int main(void)
     can_queue_init(&can2_rx_queue);
     can_queue_init(&can3_rx_queue);
     can_driver_init();
+    can_queue_init(&can_tx_queue);
 #endif
 
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  while (1)
-  {
+    while (1) {
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -229,8 +233,64 @@ int main(void)
         }
 #endif
 
+#if TEST_CAN_TX
+        /* Periodic test TX — 10ms rate, unique ID per bus, via TX queue */
+        {
+            static uint32_t last_tx_tick = 0;
+            uint32_t now = HAL_GetTick();
+
+            if ((now - last_tx_tick) >= 100) {
+                last_tx_tick = now;
+
+                static uint32_t can1_tx_count = 0;
+                static uint32_t can2_tx_count = 0;
+                static uint32_t can3_tx_count = 0;
+
+                can_msg_t tx_msg;
+                tx_msg.dlc = 8;
+                tx_msg.timestamp = now;
+
+                /* CAN3 (Autonomous): ID 0x303 */
+                memset(tx_msg.data, 0, 8);
+                tx_msg.id = 0x303;
+                tx_msg.data[0] = (uint8_t)(can3_tx_count & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can3_tx_count >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can3_tx_count >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can3_tx_count >> 24) & 0xFF);
+                tx_msg.bus = CAN_BUS_3;
+                can_queue_push(&can_tx_queue, &tx_msg);
+                can3_tx_count++;
+
+                /* CAN1 (Data bus): ID 0x301 */
+                memset(tx_msg.data, 0, 8);
+                tx_msg.id = 0x301;
+                tx_msg.data[0] = (uint8_t)(can1_tx_count & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can1_tx_count >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can1_tx_count >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can1_tx_count >> 24) & 0xFF);
+                tx_msg.bus = CAN_BUS_1;
+                can_queue_push(&can_tx_queue, &tx_msg);
+                can1_tx_count++;
+
+                /* CAN2 (Powertrain): ID 0x302 */
+                memset(tx_msg.data, 0, 8);
+                tx_msg.id = 0x302;
+                tx_msg.data[0] = (uint8_t)(can2_tx_count & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can2_tx_count >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can2_tx_count >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can2_tx_count >> 24) & 0xFF);
+                tx_msg.bus = CAN_BUS_2;
+                can_queue_push(&can_tx_queue, &tx_msg);
+                can2_tx_count++;
+            }
+        }
+#endif
+
+        /* Drain TX queues */
+        can_driver_tx_drain();
+
   /* USER CODE END 3 */
-  }
+    }
 }
 
 /**
@@ -326,11 +386,10 @@ void MPU_Config(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
-  __disable_irq();
-  while (1)
-  {
-  }
+    /* User can add his own implementation to report the HAL error return state */
+    __disable_irq();
+    while (1) {
+    }
   /* USER CODE END Error_Handler_Debug */
 }
 
@@ -345,8 +404,8 @@ void Error_Handler(void)
 void assert_failed(uint8_t *file, uint32_t line)
 {
   /* USER CODE BEGIN 6 */
-  /* User can add his own implementation to report the file name and line number,
-     ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+    /* User can add his own implementation to report the file name and line number,
+       ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */

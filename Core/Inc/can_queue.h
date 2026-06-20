@@ -8,10 +8,18 @@
 /* Configuration */
 #define CAN_QUEUE_SIZE 32  /* Must be power of 2 */
 
+/* CAN bus identifiers — used for TX routing */
+typedef enum {
+    CAN_BUS_1 = 1,   /* Data bus */
+    CAN_BUS_2 = 2,   /* Powertrain */
+    CAN_BUS_3 = 3,   /* Autonomous */
+} can_bus_t;
+
 /* CAN message entry stored in queue */
 typedef struct {
     uint32_t id;            /* CAN Standard ID */
     uint8_t  dlc;           /* Data length code (0-8) */
+    can_bus_t bus;          /* Target bus for TX (ignored for RX) */
     uint8_t  data[8];       /* Raw CAN data bytes */
     uint32_t timestamp;     /* HAL_GetTick() at reception */
 } can_msg_t;
@@ -44,9 +52,12 @@ bool can_queue_empty(const can_queue_t *q);
 /* Return true if queue is full */
 bool can_queue_full(const can_queue_t *q);
 
-/* Three global queues, one per bus */
+/* Three global RX queues, one per bus */
 extern can_queue_t can1_rx_queue;
 extern can_queue_t can2_rx_queue;
 extern can_queue_t can3_rx_queue;
+
+/* Single global TX queue for all buses */
+extern can_queue_t can_tx_queue;
 
 #endif /* CAN_QUEUE_H */
