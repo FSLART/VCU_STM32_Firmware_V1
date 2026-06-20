@@ -161,9 +161,6 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* canHandle)
     GPIO_InitStruct.Alternate = GPIO_AF9_CAN1;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    /* CAN1 interrupt Init */
-    HAL_NVIC_SetPriority(CAN1_RX0_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(CAN1_RX0_IRQn);
   /* USER CODE BEGIN CAN1_MspInit 1 */
 
   /* USER CODE END CAN1_MspInit 1 */
@@ -233,9 +230,6 @@ void HAL_CAN_MspInit(CAN_HandleTypeDef* canHandle)
     GPIO_InitStruct.Alternate = GPIO_AF11_CAN3;
     HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
-    /* CAN3 interrupt Init */
-    HAL_NVIC_SetPriority(CAN3_RX0_IRQn, 0, 0);
-    HAL_NVIC_EnableIRQ(CAN3_RX0_IRQn);
   /* USER CODE BEGIN CAN3_MspInit 1 */
 
   /* USER CODE END CAN3_MspInit 1 */
@@ -262,8 +256,6 @@ void HAL_CAN_MspDeInit(CAN_HandleTypeDef* canHandle)
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_11|GPIO_PIN_12);
 
-    /* CAN1 interrupt Deinit */
-    HAL_NVIC_DisableIRQ(CAN1_RX0_IRQn);
   /* USER CODE BEGIN CAN1_MspDeInit 1 */
 
   /* USER CODE END CAN1_MspDeInit 1 */
@@ -306,8 +298,6 @@ void HAL_CAN_MspDeInit(CAN_HandleTypeDef* canHandle)
     */
     HAL_GPIO_DeInit(GPIOA, GPIO_PIN_8|GPIO_PIN_15);
 
-    /* CAN3 interrupt Deinit */
-    HAL_NVIC_DisableIRQ(CAN3_RX0_IRQn);
   /* USER CODE BEGIN CAN3_MspDeInit 1 */
 
   /* USER CODE END CAN3_MspDeInit 1 */
