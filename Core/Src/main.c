@@ -1359,6 +1359,11 @@ void execute_immediate_tasks(void) {
         uint8_t RxData[8];
         if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
             decode_auto_bus(RxHeader, RxData, &as_system, &acu, &res);
+            if (RxHeader.StdId == BRAKE_PRESSURE_ID) {
+            	uint16_t raw_pressure = (RxData[1] << 8) | RxData[0];
+                uint8_t resulting_pressure = raw_pressure*0.1;
+                vcu.brake_pressure = resulting_pressure;
+            }
         }
     }
 
@@ -1394,12 +1399,11 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     CAN_RxHeaderTypeDef RxHeader3;
     uint8_t RxData3[8];
 
-    if (hcan->Instance == CAN1) {
-        if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader1, RxData1) == HAL_OK) {
+
+    if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader1, RxData1) == HAL_OK) {
             // CAN1 (DATA bus) - message read out to drain the FIFO, not handled yet.
-        }
-        return;
-    }
+    	}
+
 
     if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
         if (RxHeader2.StdId == 0x14) {
@@ -1410,7 +1414,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         }else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC Powertrain: 122
 
         	//Fill out the variables previously populated by ADC2
-        	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is tryring to read it
+        	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is trying to read it
         	ADC2_APPS[0] = (RxData2[1] << 8) | RxData2[0];
         	ADC2_APPS[1] = (RxData2[3] << 8) | RxData2[2];
         	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
@@ -1428,14 +1432,15 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         //Isto é BMS e HV500 parece, metemos num else, o default so da break, poupa tempo se a ID nao cair nos casos??
         /*can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);*/
 
-    }else if(HAL_CAN_GetRxMessage(CAN_AUTONOMOUS, CAN_RX_FIFO0, &RxHeader3, RxData3) == HAL_OK){
+    }/*else if(HAL_CAN_GetRxMessage(CAN_AUTONOMOUS, CAN_RX_FIFO0, &RxHeader3, RxData3) == HAL_OK){
+
     	if (RxHeader3.StdId == BRAKE_PRESSURE_ID) {
 
     		uint16_t raw_pressure = (RxData3[1] << 8) | RxData3[0];
     		uint8_t resulting_pressure = raw_pressure*0.1;
     		vcu.brake_pressure = resulting_pressure;
     	}
-    }
+    }*/
 
 }
 
