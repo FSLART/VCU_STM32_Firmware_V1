@@ -67,15 +67,6 @@
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
-/* CAN ID DEFINITIONS */
-//CAN 1 - DATA
-
-//CAN 2 - POWERTRAIN
-#define APPS_ADC_RAW_ID 0x710
-#define R2D_AND_IGN_ID 0x740
-//CAN 3 - AUTONOMOUS
-#define BRAKE_PRESSURE_ID 0x710
-
 
 #pragma region Includes
 /* -------------------- STANDARD INCLUDES -------------------- */
@@ -99,7 +90,7 @@
 #pragma region Global Variables
 // ADC buffers
 __attribute__((section(".adcarray"))) uint16_t ADC1_VAL[4];
-__attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
+//__attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 
 // APPS moving average variables
 uint16_t apps1_buffer[APPS_MA_WINDOW_SIZE];
@@ -108,8 +99,7 @@ uint8_t apps_buffer_pos = 0;
 uint16_t apps1_avg = 0;
 uint16_t apps2_avg = 0;
 
-//APPS Loss of comms tick
-volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+
 //UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
 //volatile uint32_t last_r2d_ign_can_rx_time = 0; //keeps track of the last time a valid 0x740 message came through
 
@@ -183,51 +173,9 @@ const char *state_names[] = {
     "STATE_READY_AUTONOMOUS",
     "STATE_AS_EMERGENCY"};
 
-// VCU signals structure
-typedef struct {
-    bool r2d_button_signal;  // R2D signal
-    bool r2d_toggle_signal;  // R2D toggle signal
-    bool r2d_button_prev;    // Previous state of button for edge detection
-
-    bool r2d_autonomous_signal;  // R2D signal from autonomous system
-
-    bool shutdown_signal;  // Shutdown signal
-
-    uint8_t brake_pressure;  // Brake pressure signal
-
-    bool ignition_ad;             // ignition comming from autonomous system
-    bool ignition_switch_signal;  // Ignition signal
-
-    bool precharge_signal;  // Precharge signal
-    bool manual;            // Manual mode signal
-    bool autonomous;        // Autonomous mode signal
-
-    bool AS_emergency;
-
-    // R2D sound control variables
-    bool r2d_sound_playing;         // Flag indicating if R2D sound is currently playing
-    bool r2d_sound_completed;       // Flag indicating if R2D sound has been played for current R2D event
-    uint32_t r2d_sound_start_time;  // Timestamp when R2D sound started
-
-    // Emergency sound control variables
-    bool emergency_sound_playing;          // Flag indicating if emergency sound is currently playing
-    bool emergency_sound_completed;        // Flag indicating if emergency sound has been played for current emergency event
-    uint32_t emergency_sound_start_time;   // Timestamp when emergency sound started
-    uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
-    bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
-} VCU_Signals_t;
 
 long erpm_temporary = 0;  // Temporary variable for ERPM calculations
 
-// Initialize all signals to 0
-VCU_Signals_t vcu = {
-    .precharge_signal = false,
-
-    .r2d_button_signal = false,
-    .r2d_toggle_signal = false,
-    .r2d_button_prev = false,
-    // All other fields will be initialized to 0/false by default
-};
 
 #pragma endregion Global Variables
 
@@ -1359,11 +1307,6 @@ void execute_immediate_tasks(void) {
         uint8_t RxData[8];
         if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
             decode_auto_bus(RxHeader, RxData, &as_system, &acu, &res);
-            if (RxHeader.StdId == BRAKE_PRESSURE_ID) {
-            	uint16_t raw_pressure = (RxData[1] << 8) | RxData[0];
-                uint8_t resulting_pressure = raw_pressure*0.1;
-                vcu.brake_pressure = resulting_pressure;
-            }
         }
     }
 
@@ -1396,8 +1339,8 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
     uint8_t RxData1[8];
     CAN_RxHeaderTypeDef RxHeader2;
     uint8_t RxData2[8];
-    CAN_RxHeaderTypeDef RxHeader3;
-    uint8_t RxData3[8];
+    //CAN_RxHeaderTypeDef RxHeader3;
+    //uint8_t RxData3[8];
 
 
     if (HAL_CAN_GetRxMessage(&hcan1, CAN_RX_FIFO0, &RxHeader1, RxData1) == HAL_OK) {
@@ -1411,7 +1354,7 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
             erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
             // printf("\n\rERPM: %d\n\r", erpm_temporary);
 
-        }else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC Powertrain: 122
+        /*}else if (RxHeader2.StdId == APPS_ADC_RAW_ID) { //APPS_ADC_RAW - DBC Powertrain: 122
 
         	//Fill out the variables previously populated by ADC2
         	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is trying to read it
@@ -1420,9 +1363,12 @@ void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
         	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
         	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
-        }else if(RxHeader2.StdId == R2D_AND_IGN_ID){//R2D Button and IGN button - DBC Powertrain: 123
+
+
+          }else if(RxHeader2.StdId == R2D_AND_IGN_ID){//R2D Button and IGN button - DBC Powertrain: 123
         	vcu.ignition_switch_signal = RxData2[0];
 			vcu.r2d_button_signal = RxData2[1];
+			*/
         }else {
         	can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
         }

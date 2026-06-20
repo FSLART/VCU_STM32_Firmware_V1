@@ -131,6 +131,48 @@ typedef struct {
     int32_t result_W;  // Resulting power in watts
 } IVT_t;
 
+// VCU signals structure
+typedef struct {
+    bool r2d_button_signal;  // R2D signal
+    bool r2d_toggle_signal;  // R2D toggle signal
+    bool r2d_button_prev;    // Previous state of button for edge detection
+
+    bool r2d_autonomous_signal;  // R2D signal from autonomous system
+
+    bool shutdown_signal;  // Shutdown signal
+
+    uint8_t brake_pressure;  // Brake pressure signal
+
+    bool ignition_ad;             // ignition comming from autonomous system
+    bool ignition_switch_signal;  // Ignition signal
+
+    bool precharge_signal;  // Precharge signal
+    bool manual;            // Manual mode signal
+    bool autonomous;        // Autonomous mode signal
+
+    bool AS_emergency;
+
+    // R2D sound control variables
+    bool r2d_sound_playing;         // Flag indicating if R2D sound is currently playing
+    bool r2d_sound_completed;       // Flag indicating if R2D sound has been played for current R2D event
+    uint32_t r2d_sound_start_time;  // Timestamp when R2D sound started
+
+    // Emergency sound control variables
+    bool emergency_sound_playing;          // Flag indicating if emergency sound is currently playing
+    bool emergency_sound_completed;        // Flag indicating if emergency sound has been played for current emergency event
+    uint32_t emergency_sound_start_time;   // Timestamp when emergency sound started
+    uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
+    bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
+} VCU_Signals_t;
+
+// VCU signals (defined in CAN_utils.c)
+extern VCU_Signals_t vcu;
+
+//Variables
+//APPS Loss of comms tick
+extern volatile uint32_t last_apps_can_rx_time; // keeps track of the last time a valid 0x710 message came through
+extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
+
 /**
  * @brief Sends a CAN message
  * @param hcan CAN handle

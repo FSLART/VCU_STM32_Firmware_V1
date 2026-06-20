@@ -14,6 +14,29 @@
 // RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
 #define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
 
+/* CAN ID DEFINITIONS */
+//CAN 1 - DATA
+
+//CAN 2 - POWERTRAIN
+#define APPS_ADC_RAW_ID 0x710
+#define R2D_AND_IGN_ID 0x740
+//CAN 3 - AUTONOMOUS
+#define BRAKE_PRESSURE_ID 0x710
+// Initialize all signals to 0
+VCU_Signals_t vcu = {
+    .precharge_signal = false,
+
+    .r2d_button_signal = false,
+    .r2d_toggle_signal = false,
+    .r2d_button_prev = false,
+    // All other fields will be initialized to 0/false by default
+};
+
+//Variables
+//APPS Loss of comms tick
+volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+__attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
+
 #pragma region Basic CAN Functions
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
@@ -300,6 +323,20 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *
             bms->low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
             bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
             break;
+        case APPS_ADC_RAW_ID:
+        	//Fill out the variables previously populated by ADC2
+        	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is trying to read it
+        	uint16_t apps1 = (data[1] << 8) | data[0];
+        	uint16_t apps2 = (data[3] << 8) | data[2];
+        	ADC2_APPS[0] = apps1*0.1;
+        	ADC2_APPS[1] = apps2*0.1;
+        	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
+
+        	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
+        	break;
+        case R2D_AND_IGN_ID:
+        	vcu.ignition_switch_signal = data[0];
+        	vcu.r2d_button_signal = data[1];
         default:
             break;
     }
@@ -439,7 +476,11 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
             autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
             as_system->state = as_state.state;
             break;
-
+        case BRAKE_PRESSURE_ID:
+        	uint16_t raw_pressure = (data[1] << 8) | data[0];
+        	uint8_t resulting_pressure = raw_pressure*0.1;
+        	vcu.brake_pressure = resulting_pressure;
+            break;
         default:
             break;
     }
