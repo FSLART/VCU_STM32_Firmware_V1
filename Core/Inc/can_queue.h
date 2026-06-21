@@ -19,12 +19,16 @@ typedef enum {
 typedef struct {
     uint32_t id;            /* CAN Standard ID */
     uint8_t  dlc;           /* Data length code (0-8) */
-    can_bus_t bus;          /* Target bus for TX (ignored for RX) */
+    uint8_t  bus;           /* Target bus for TX (ignored for RX). Holds a
+                                can_bus_t value; stored as uint8_t instead of
+                                the enum type so struct layout is fixed
+                                regardless of -fshort-enums or compiler ABI
+                                choices for enum underlying type. */
     uint8_t  data[8];       /* Raw CAN data bytes */
     uint32_t timestamp;     /* HAL_GetTick() at reception */
 } can_msg_t;
 
-/* Ring buffer for one CAN bus */
+/* Ring buffer for one CAN bus (used for both RX and TX) */
 typedef struct {
     can_msg_t buffer[CAN_QUEUE_SIZE];
     volatile uint32_t head;  /* Write index (ISR context) */
@@ -57,7 +61,27 @@ extern can_queue_t can1_rx_queue;
 extern can_queue_t can2_rx_queue;
 extern can_queue_t can3_rx_queue;
 
-/* Single global TX queue for all buses */
-extern can_queue_t can_tx_queue;
+/* Three global TX queues, one per bus.
+ *
+ * Each STM32F767 bxCAN peripheral instance (CAN1/CAN2/CAN3) has its own
+ * independent set of 3 hardware TX mailboxes — mailboxes are NOT shared
+ * or pooled across instances. A single shared TX queue therefore creates
+ * head-of-line blocking: a message stuck at the front waiting for bus 1's
+ * mailboxes can block bus 2/3 messages even when bus 2/3 mailboxes are
+ * completely free. Splitting into one queue per bus maps directly onto
+ * the hardware and guarantees no bus can starve another. */
+extern can_queue_t can1_tx_queue;
+extern can_queue_t can2_tx_queue;
+extern can_queue_t can3_tx_queue;
+
+/* Push a TX message into the queue matching msg->bus.
+ * Returns false if msg->bus is not a recognized bus, or if the target
+ * queue is full (queue-full semantics match can_queue_push). */
+bool can_tx_enqueue(const can_msg_t *msg);
+
+/* Look up the TX queue for a given bus. Returns NULL for an unrecognized
+ * bus value. Useful when the caller already knows the bus and wants to
+ * pop directly (e.g. from each bus's TX-mailbox-empty handling). */
+can_queue_t *can_tx_queue_for_bus(can_bus_t bus);
 
 #endif /* CAN_QUEUE_H */

@@ -64,9 +64,8 @@
 /* USER CODE BEGIN PV */
 /* Debug variables — watch these in debugger */
 #if TEST_CAN_IRQ
-volatile uint32_t can1_rx_count = 0;
-volatile uint32_t can2_rx_count = 0;
-volatile uint32_t can3_rx_count = 0;
+/* can1/2/3_rx_count and can1/2/3_tx_count are defined in can_driver.c
+   and declared extern in can_driver.h — watch them there. */
 #endif
 
 #if TEST_CAN_QUEUE
@@ -165,7 +164,9 @@ int main(void)
     can_queue_init(&can2_rx_queue);
     can_queue_init(&can3_rx_queue);
     can_driver_init();
-    can_queue_init(&can_tx_queue);
+    can_queue_init(&can1_tx_queue);
+    can_queue_init(&can2_tx_queue);
+    can_queue_init(&can3_tx_queue);
 #endif
 
   /* USER CODE END 2 */
@@ -182,16 +183,16 @@ int main(void)
         can_msg_t msg;
 
         while (can_queue_pop(&can1_rx_queue, &msg)) {
-            can1_rx_count++;
             /* User: set breakpoint here and inspect msg.id, msg.data, msg.dlc */
+            /* can1_rx_count is incremented in the ISR (can_driver_rx_isr) */
         }
 
         while (can_queue_pop(&can2_rx_queue, &msg)) {
-            can2_rx_count++;
+            /* can2_rx_count is incremented in the ISR */
         }
 
         while (can_queue_pop(&can3_rx_queue, &msg)) {
-            can3_rx_count++;
+            /* can3_rx_count is incremented in the ISR */
         }
 #endif
 
@@ -242,9 +243,12 @@ int main(void)
             if ((now - last_tx_tick) >= 100) {
                 last_tx_tick = now;
 
-                static uint32_t can1_tx_count = 0;
-                static uint32_t can2_tx_count = 0;
-                static uint32_t can3_tx_count = 0;
+                /* Sequence counters — embedded in TX payload bytes [0..3] so the
+                 * receiver can detect lost/reordered frames. Named _seq to avoid
+                 * shadowing the hardware-level can1/2/3_tx_count in can_driver.c. */
+                static uint32_t can1_tx_seq = 0;
+                static uint32_t can2_tx_seq = 0;
+                static uint32_t can3_tx_seq = 0;
 
                 can_msg_t tx_msg;
                 tx_msg.dlc = 8;
@@ -253,41 +257,41 @@ int main(void)
                 /* CAN3 (Autonomous): ID 0x303 */
                 memset(tx_msg.data, 0, 8);
                 tx_msg.id = 0x303;
-                tx_msg.data[0] = (uint8_t)(can3_tx_count & 0xFF);
-                tx_msg.data[1] = (uint8_t)((can3_tx_count >> 8) & 0xFF);
-                tx_msg.data[2] = (uint8_t)((can3_tx_count >> 16) & 0xFF);
-                tx_msg.data[3] = (uint8_t)((can3_tx_count >> 24) & 0xFF);
+                tx_msg.data[0] = (uint8_t)(can3_tx_seq & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can3_tx_seq >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can3_tx_seq >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can3_tx_seq >> 24) & 0xFF);
                 tx_msg.bus = CAN_BUS_3;
-                can_queue_push(&can_tx_queue, &tx_msg);
-                can3_tx_count++;
+                can_tx_enqueue(&tx_msg);
+                can3_tx_seq++;
 
                 /* CAN1 (Data bus): ID 0x301 */
                 memset(tx_msg.data, 0, 8);
                 tx_msg.id = 0x301;
-                tx_msg.data[0] = (uint8_t)(can1_tx_count & 0xFF);
-                tx_msg.data[1] = (uint8_t)((can1_tx_count >> 8) & 0xFF);
-                tx_msg.data[2] = (uint8_t)((can1_tx_count >> 16) & 0xFF);
-                tx_msg.data[3] = (uint8_t)((can1_tx_count >> 24) & 0xFF);
+                tx_msg.data[0] = (uint8_t)(can1_tx_seq & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can1_tx_seq >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can1_tx_seq >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can1_tx_seq >> 24) & 0xFF);
                 tx_msg.bus = CAN_BUS_1;
-                can_queue_push(&can_tx_queue, &tx_msg);
-                can1_tx_count++;
+                can_tx_enqueue(&tx_msg);
+                can1_tx_seq++;
 
                 /* CAN2 (Powertrain): ID 0x302 */
                 memset(tx_msg.data, 0, 8);
                 tx_msg.id = 0x302;
-                tx_msg.data[0] = (uint8_t)(can2_tx_count & 0xFF);
-                tx_msg.data[1] = (uint8_t)((can2_tx_count >> 8) & 0xFF);
-                tx_msg.data[2] = (uint8_t)((can2_tx_count >> 16) & 0xFF);
-                tx_msg.data[3] = (uint8_t)((can2_tx_count >> 24) & 0xFF);
+                tx_msg.data[0] = (uint8_t)(can2_tx_seq & 0xFF);
+                tx_msg.data[1] = (uint8_t)((can2_tx_seq >> 8) & 0xFF);
+                tx_msg.data[2] = (uint8_t)((can2_tx_seq >> 16) & 0xFF);
+                tx_msg.data[3] = (uint8_t)((can2_tx_seq >> 24) & 0xFF);
                 tx_msg.bus = CAN_BUS_2;
-                can_queue_push(&can_tx_queue, &tx_msg);
-                can2_tx_count++;
+                can_tx_enqueue(&tx_msg);
+                can2_tx_seq++;
             }
         }
 #endif
 
-        /* Drain TX queues */
-        can_driver_tx_drain();
+        /* Drain TX queues — one attempt per bus per loop iteration */
+        can_driver_tx_poll();
 
   /* USER CODE END 3 */
     }
