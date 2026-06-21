@@ -412,7 +412,7 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
         printf("APPS2 - Min: %u, Max: %u (Range: %u)\n",
                calib_state.apps2_min, calib_state.apps2_max,
                calib_state.apps2_max - calib_state.apps2_min);
-        printf("Average Delta between sensors: %d\n", avg_delta);
+        printf("Average Delta between sensors: %ld\n", avg_delta);
 
         // Print calibration recommendations
         printf("\nRecommended Calibration Values:\n");

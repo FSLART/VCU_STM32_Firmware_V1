@@ -36,7 +36,7 @@
 #include "can_queue.h"
 #endif
 #if TEST_DBC_CODEC
-#include "autonomous_temporary.h"
+#include "autonomous_t26.h"
 #include "data_dbc.h"
 #include "dbc_codec.h"
 #include "fsic.h"

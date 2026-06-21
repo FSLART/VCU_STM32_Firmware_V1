@@ -1,7 +1,7 @@
 #include "dbc_codec.h"
 #include "fsic.h"
 #include "data_dbc.h"
-#include "autonomous_temporary.h"
+#include "autonomous_t26.h"
 #include <string.h>
 
 /* ==================== FSIC INV1 Decode ==================== */
@@ -173,48 +173,48 @@ bool dbc_encode_vcu_3(uint8_t *data, uint8_t *dlc, uint16_t inv_voltage, uint16_
 /* ==================== Autonomous Bus Encode ==================== */
 
 bool dbc_encode_vcu_rpm(uint8_t *data, uint8_t *dlc, uint16_t rpm) {
-    struct autonomous_temporary_vcu_rpm_t msg;
-    autonomous_temporary_vcu_rpm_init(&msg);
-    msg.rpm_actual = (int16_t)rpm;
-    int ret = autonomous_temporary_vcu_rpm_pack(data, &msg, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
-    *dlc = AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH;
-    return (ret == AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
+    struct autonomous_t26_vcu_rpm_t msg;
+    autonomous_t26_vcu_rpm_init(&msg);
+    msg.motor_rpm_left = rpm;
+    int ret = autonomous_t26_vcu_rpm_pack(data, &msg, AUTONOMOUS_T26_VCU_RPM_LENGTH);
+    *dlc = AUTONOMOUS_T26_VCU_RPM_LENGTH;
+    return (ret == AUTONOMOUS_T26_VCU_RPM_LENGTH);
 }
 
 bool dbc_encode_vcu_hv(uint8_t *data, uint8_t *dlc, uint8_t hv_state, uint8_t brake_pressure_front) {
-    struct autonomous_temporary_vcu_hv_t msg;
-    autonomous_temporary_vcu_hv_init(&msg);
+    struct autonomous_t26_vcu_hv_t msg;
+    autonomous_t26_vcu_hv_init(&msg);
     msg.hv = hv_state;
     msg.brake_pressure_front = brake_pressure_front;
-    int ret = autonomous_temporary_vcu_hv_pack(data, &msg, AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
-    *dlc = AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH;
-    return (ret == AUTONOMOUS_TEMPORARY_VCU_HV_LENGTH);
+    int ret = autonomous_t26_vcu_hv_pack(data, &msg, AUTONOMOUS_T26_VCU_HV_LENGTH);
+    *dlc = AUTONOMOUS_T26_VCU_HV_LENGTH;
+    return (ret == AUTONOMOUS_T26_VCU_HV_LENGTH);
 }
 
 /* ==================== Autonomous Bus Decode ==================== */
 
 bool dbc_decode_acu_ign(const uint8_t *data, uint8_t dlc, uint8_t *ign, uint8_t *asms, uint8_t *emergency) {
-    if (dlc < AUTONOMOUS_TEMPORARY_ACU_IGN_LENGTH) return false;
-    struct autonomous_temporary_acu_ign_t msg;
-    if (autonomous_temporary_acu_ign_unpack(&msg, data, AUTONOMOUS_TEMPORARY_ACU_IGN_LENGTH) != 0) return false;
-    *ign = msg.ign;
-    *asms = msg.asms;
+    if (dlc < AUTONOMOUS_T26_ACU_LENGTH) return false;
+    struct autonomous_t26_acu_t msg;
+    if (autonomous_t26_acu_unpack(&msg, data, AUTONOMOUS_T26_ACU_LENGTH) != 0) return false;
+    *ign       = msg.ign;
+    *asms      = msg.asms;
     *emergency = msg.emergency;
     return true;
 }
 
 bool dbc_decode_as_state(const uint8_t *data, uint8_t dlc, uint8_t *state) {
-    if (dlc < AUTONOMOUS_TEMPORARY_AS_STATE_LENGTH) return false;
-    struct autonomous_temporary_as_state_t msg;
-    if (autonomous_temporary_as_state_unpack(&msg, data, AUTONOMOUS_TEMPORARY_AS_STATE_LENGTH) != 0) return false;
-    *state = msg.state;
+    if (dlc < AUTONOMOUS_T26_DV_STATUS_LENGTH) return false;
+    struct autonomous_t26_dv_status_t msg;
+    if (autonomous_t26_dv_status_unpack(&msg, data, AUTONOMOUS_T26_DV_STATUS_LENGTH) != 0) return false;
+    *state = msg.as_status;
     return true;
 }
 
 bool dbc_decode_rpm_target(const uint8_t *data, uint8_t dlc, uint16_t *rpm_target) {
-    if (dlc < AUTONOMOUS_TEMPORARY_RPM_TARGET_LENGTH) return false;
-    struct autonomous_temporary_rpm_target_t msg;
-    if (autonomous_temporary_rpm_target_unpack(&msg, data, AUTONOMOUS_TEMPORARY_RPM_TARGET_LENGTH) != 0) return false;
+    if (dlc < AUTONOMOUS_T26_VCU_RPM_TARGET_LENGTH) return false;
+    struct autonomous_t26_vcu_rpm_target_t msg;
+    if (autonomous_t26_vcu_rpm_target_unpack(&msg, data, AUTONOMOUS_T26_VCU_RPM_TARGET_LENGTH) != 0) return false;
     *rpm_target = msg.rpm_target;
     return true;
 }

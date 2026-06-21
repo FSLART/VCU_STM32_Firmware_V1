@@ -8,7 +8,7 @@
 #include "../../Can-Header-Map/CAN_asdb.h"
 #include "../../Can-Header-Map/CAN_datadb.h"
 #include "../../Can-Header-Map/CAN_pwtdb.h"
-#include "autonomous_temporary.h"
+#include "autonomous_t26.h"
 #include "data_dbc.h"
 
 // Placeholder autonomous torque command
@@ -369,7 +369,7 @@ void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, ui
     // autonomous_temporary_vcu_hv_init(&hv_signal_msg);
     // hv_signal_msg.hv = hv_state;  // Set the HV state
     // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
-    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
+    can_bus_send(hcan, AUTONOMOUS_T26_VCU_HV_FRAME_ID, data, 3);
 }
 
 void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state) {
@@ -393,66 +393,57 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
 void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
     uint8_t dlc_bits = RxHeader.DLC * 8;
     switch (RxHeader.StdId) {
-        case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
-            struct autonomous_temporary_acu_ms_t acu_ms;
-            autonomous_temporary_acu_ms_init(&acu_ms);
+        case AUTONOMOUS_T26_ACU_FRAME_ID: {
+            struct autonomous_t26_acu_t acu_ms;
+            autonomous_t26_acu_init(&acu_ms);
             acu_ms.mission_select = 0;
-            autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
+            autonomous_t26_acu_unpack(&acu_ms, data, dlc_bits);
             acu->mission_select = acu_ms.mission_select;
+            acu->ignition_ad    = acu_ms.ign;
+            acu->ASMS           = acu_ms.asms;
+            acu->is_in_emergency = acu_ms.emergency;
             break;
-        case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
-            struct autonomous_temporary_acu_ign_t acu_ign;
-            autonomous_temporary_acu_ign_init(&acu_ign);
-            acu_ign.ign = 0;
-            autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
-            acu->ignition_ad = acu_ign.ign;
-            acu->ASMS = acu_ign.asms;
-            acu->is_in_emergency = acu_ign.emergency;
+        }
+        case AUTONOMOUS_T26_JETSON_FRAME_ID: {
+            struct autonomous_t26_jetson_t jetson_ms;
+            autonomous_t26_jetson_init(&jetson_ms);
+            jetson_ms.as_mission = 0;
+            autonomous_t26_jetson_unpack(&jetson_ms, data, dlc_bits);
+            as_system->mission_select   = jetson_ms.as_mission;
             break;
-        case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
-            struct autonomous_temporary_jetson_ms_t jetson_ms;
-            autonomous_temporary_jetson_ms_init(&jetson_ms);
-            jetson_ms.mission_select = 0;
-            autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
-            as_system->mission_select = jetson_ms.mission_select;
-            break;
-        // case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-        case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-            struct autonomous_temporary_rd_jetson_t rd_jetson;
-            autonomous_temporary_rd_jetson_init(&rd_jetson);
-            rd_jetson.rd = 0;
-            autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
-            as_system->ready_to_drive_ad = rd_jetson.rd;
-            break;
-        case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
-            struct autonomous_temporary_res_t res_ad;
-            autonomous_temporary_res_init(&res_ad);
+        }
+        case AUTONOMOUS_T26_RES_FRAME_ID: {
+            struct autonomous_t26_res_t res_ad;
+            autonomous_t26_res_init(&res_ad);
             res_ad.signal = 0;
-            autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
+            autonomous_t26_res_unpack(&res_ad, data, dlc_bits);
             res->signal = res_ad.signal;
             break;
-        case AUTONOMOUS_TEMPORARY_RPM_TARGET_FRAME_ID:
-            struct autonomous_temporary_rpm_target_t target_rpm;
-            autonomous_temporary_rpm_target_init(&target_rpm);
+        }
+        case AUTONOMOUS_T26_VCU_RPM_TARGET_FRAME_ID: {
+            struct autonomous_t26_vcu_rpm_target_t target_rpm;
+            autonomous_t26_vcu_rpm_target_init(&target_rpm);
             target_rpm.rpm_target = 0;
-            autonomous_temporary_rpm_target_unpack(&target_rpm, data, dlc_bits);
-            as_system->target_rpm = target_rpm.rpm_target;
-            as_system->control_mode = AS_CONTROL_MODE_RPM;
+            autonomous_t26_vcu_rpm_target_unpack(&target_rpm, data, dlc_bits);
+            as_system->target_rpm    = target_rpm.rpm_target;
+            as_system->control_mode  = AS_CONTROL_MODE_RPM;
             as_system->last_control_cmd_ms = HAL_GetTick();
             break;
-        case AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID:
+        }
+        case AUTONOMOUS_T26_VCU_TORQUE_TARGET_FRAME_ID:
             // Same byte shifting as RPM target (2-byte little-endian), interpreted as signed -100..100.
             as_system->target_torque = (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
-            as_system->control_mode = AS_CONTROL_MODE_TORQUE;
+            as_system->control_mode  = AS_CONTROL_MODE_TORQUE;
             as_system->last_control_cmd_ms = HAL_GetTick();
             break;
-        case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
-            struct autonomous_temporary_as_state_t as_state;
-            autonomous_temporary_as_state_init(&as_state);
-            as_state.state = 0;
-            autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
-            as_system->state = as_state.state;
+        case AUTONOMOUS_T26_DV_STATUS_FRAME_ID: {
+            struct autonomous_t26_dv_status_t as_state;
+            autonomous_t26_dv_status_init(&as_state);
+            as_state.as_status = 0;
+            autonomous_t26_dv_status_unpack(&as_state, data, dlc_bits);
+            as_system->state = as_state.as_status;
             break;
+        }
 
         default:
             break;
