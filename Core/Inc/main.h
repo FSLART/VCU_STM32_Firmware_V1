@@ -61,8 +61,6 @@ void Error_Handler(void);
 #define adc1_in1_brake_pressure_GPIO_Port GPIOA
 #define int1_ign_Pin GPIO_PIN_7
 #define int1_ign_GPIO_Port GPIOA
-#define int2_r2d_Pin GPIO_PIN_4
-#define int2_r2d_GPIO_Port GPIOC
 #define int3_shutdown_signal_Pin GPIO_PIN_0
 #define int3_shutdown_signal_GPIO_Port GPIOB
 #define dout3_Water_Pump_Pin GPIO_PIN_14

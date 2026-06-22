@@ -59,7 +59,6 @@ void ADC_IRQHandler(void);
 void CAN1_RX0_IRQHandler(void);
 void TIM2_IRQHandler(void);
 void DMA2_Stream0_IRQHandler(void);
-void DMA2_Stream2_IRQHandler(void);
 void CAN2_RX0_IRQHandler(void);
 void CAN3_RX0_IRQHandler(void);
 /* USER CODE BEGIN EFP */
