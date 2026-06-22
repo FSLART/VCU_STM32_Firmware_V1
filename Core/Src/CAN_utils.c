@@ -2,14 +2,16 @@
 
 #include <string.h>  // Add this for memset function
 
+#include "can_queue.h"
+
 // #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
 // #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
 // #include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
-#include "../../Can-Header-Map/CAN_asdb.h"
-#include "../../Can-Header-Map/CAN_datadb.h"
-#include "../../Can-Header-Map/CAN_pwtdb.h"
+
 #include "autonomous_temporary.h"
 #include "data_dbc.h"
+#include "fsic.h"
+#include "powertrain_t26.h"
 
 // Placeholder autonomous torque command
 #define AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID (0x49Au)
@@ -43,199 +45,180 @@ __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1
 #pragma region Basic CAN Functions
 
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len) {
-    CAN_TxHeaderTypeDef TxHeader;
-    TxHeader.StdId = id;
-    TxHeader.ExtId = 0;
-    TxHeader.RTR = CAN_RTR_DATA;
-    TxHeader.IDE = CAN_ID_STD;
-    TxHeader.DLC = len;
-    TxHeader.TransmitGlobalTime = DISABLE;
+    can_msg_t msg = {
+        .id = id,
+        .dlc = len,
+        .timestamp = HAL_GetTick(),
+    };
+    memcpy(msg.data, data, len);
 
-    uint32_t TxMailbox;
+    if (hcan == &hcan1)      msg.bus = CAN_BUS_1;
+    else if (hcan == &hcan2) msg.bus = CAN_BUS_2;
+    else if (hcan == &hcan3) msg.bus = CAN_BUS_3;
+    else return;
 
-    HAL_CAN_AddTxMessage(hcan, &TxHeader, data, &TxMailbox);
+    can_tx_enqueue(&msg);
 }
 
-// read for multiple can bus
-void can_bus_read_DATADB(CAN_HandleTypeDef *hcan) {
-    CAN_RxHeaderTypeDef RxHeader;
-    uint8_t data[8];
-
-    HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &RxHeader, data);
-
-    switch (RxHeader.StdId) {
-        default:
-            break;
-    }
-}
 #pragma endregion Basic CAN Functions
 
-#pragma region HV500 Control Functions
+#pragma region FSIC Inverter Control Functions
 
 /*
-░█████╗░░█████╗░███╗░░██╗  ██████╗░  ░░░░░░██████╗░░█████╗░░██╗░░░░░░░██╗███████╗██████╗░████████╗██████╗░░█████╗░██╗███╗░░██╗
-██╔══██╗██╔══██╗████╗░██║  ╚════██╗  ░░░░░░██╔══██╗██╔══██╗░██║░░██╗░░██║██╔════╝██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██║████╗░██║
-██║░░╚═╝███████║██╔██╗██║  ░░███╔═╝  █████╗██████╔╝██║░░██║░╚██╗████╗██╔╝█████╗░░██████╔╝░░░██║░░░██████╔╝███████║██║██╔██╗██║
-██║░░██╗██╔══██║██║╚████║  ██╔══╝░░  ╚════╝██╔═══╝░██║░░██║░░████╔═████║░██╔══╝░░██╔══██╗░░░██║░░░██╔══██╗██╔══██║██║██║╚████║
-╚█████╔╝██║░░██║██║░╚███║  ███████╗  ░░░░░░██║░░░░░╚█████╔╝░░╚██╔╝░╚██╔╝░███████╗██║░░██║░░░██║░░░██║░░██║██║░░██║██║██║░╚███║
-░╚════╝░╚═╝░░╚═╝╚═╝░░╚══╝  ╚══════╝  ░░░░░░╚═╝░░░░░░╚════╝░░░░╚═╝░░░╚═╝░░╚══════╝╚═╝░░╚═╝░░░╚═╝░░░╚═╝░░╚═╝╚═╝░░╚═╝╚═╝╚═╝░░╚══╝
-*/
+ * FSIC Dual-Inverter Control Functions (replaces FSIC_t single-inverter)
+ *
+ * Each function sends a command to either INV1 or INV2 based on inv_id.
+ * The fsic_inv1_* pack functions produce identical byte layout for both
+ * inverters — only the CAN frame ID selects which inverter receives the command.
+ *
+ * SAFETY: Wrong inv_id = wrong inverter gets the command = potential vehicle dynamics issue.
+ * inv_id == 1 selects INV1 frame IDs, inv_id == 2 selects INV2 frame IDs.
+ */
 
-/*Send_CAN_HV500_SetAcCurrent*/
-void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetAcCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_AcCurrent(data.message, ac_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetAcCurrent*/
+void can_bus_send_FSIC_SetAcCurrent(uint8_t inv_id, int16_t ac_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_ac_current_t msg;
+    fsic_inv1_set_ac_current_init(&msg);
+    msg.inv1_cmd_target_ac_current = ac_current;
+    uint8_t data[8];
+    fsic_inv1_set_ac_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_AC_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_AC_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_AC_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetBrakeCurrent*/
-void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetBrakeCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_BrakeCurrent(data.message, brake_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetBrakeCurrent*/
+void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_brake_current_t msg;
+    fsic_inv1_set_brake_current_init(&msg);
+    msg.inv1_cmd_target_brake_current = brake_current;
+    uint8_t data[8];
+    fsic_inv1_set_brake_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_BRAKE_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_BRAKE_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_BRAKE_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetERPM*/
-void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetERPM_ID;
-    data.length = 4;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_ERPM(data.message, erpm);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetERPM*/
+void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_erpm_t msg;
+    fsic_inv1_set_erpm_init(&msg);
+    msg.inv1_cmd_target_speed = erpm;
+    uint8_t data[8];
+    fsic_inv1_set_erpm_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_ERPM_FRAME_ID
+                                      : FSIC_INV1_SET_ERPM_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_ERPM_LENGTH);
 }
 
-/*Send_CAN_HV500_SetPosition*/
-void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetPosition_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_Position(data.message, position);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetPosition*/
+void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_position_t msg;
+    fsic_inv1_set_position_init(&msg);
+    msg.inv1_cmd_target_position = position;
+    uint8_t data[8];
+    fsic_inv1_set_position_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_POSITION_FRAME_ID
+                                      : FSIC_INV1_SET_POSITION_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_POSITION_LENGTH);
 }
 
-/*Send_CAN_HV500_SetRelCurrent*/
-void can_bus_send_HV500_SetRelCurrent(int16_t rel_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetRelCurrent_ID;
-    data.length = 2;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_RelCurrent(data.message, rel_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetRelCurrent*/
+void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_rel_current_t msg;
+    fsic_inv1_set_rel_current_init(&msg);
+    msg.inv1_cmd_target_relative_current = rel_current;
+    uint8_t data[8];
+    fsic_inv1_set_rel_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_REL_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_REL_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_REL_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetRelBrakeCurrent*/
-void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetRelBrakeCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_RelBrakeCurrent(data.message, rel_brake_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetRelBrakeCurrent*/
+void can_bus_send_FSIC_SetRelBrakeCurrent(uint8_t inv_id, int16_t rel_brake_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_rel_brake_current_t msg;
+    fsic_inv1_set_rel_brake_current_init(&msg);
+    msg.inv1_cmd_tgt_rel_brake_current = rel_brake_current;
+    uint8_t data[8];
+    fsic_inv1_set_rel_brake_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_REL_BRAKE_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_REL_BRAKE_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_REL_BRAKE_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetMaxAcCurrent*/
-void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetMaxAcCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_MaxAcCurrent(data.message, max_ac_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetMaxAcCurrent*/
+void can_bus_send_FSIC_SetMaxAcCurrent(uint8_t inv_id, int16_t max_ac_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_max_ac_current_t msg;
+    fsic_inv1_set_max_ac_current_init(&msg);
+    msg.inv1_cmd_max_ac_current = max_ac_current;
+    uint8_t data[8];
+    fsic_inv1_set_max_ac_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_MAX_AC_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_MAX_AC_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_MAX_AC_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetMaxAcBrakeCurrent*/
-void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetMaxAcBrakeCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_MaxAcBrakeCurrent(data.message, max_ac_brake_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetMaxAcBrakeCurrent*/
+void can_bus_send_FSIC_SetMaxAcBrakeCurrent(uint8_t inv_id, int16_t max_ac_brake_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_max_ac_brake_current_t msg;
+    fsic_inv1_set_max_ac_brake_current_init(&msg);
+    msg.inv1_cmd_max_ac_brake_current = max_ac_brake_current;
+    uint8_t data[8];
+    fsic_inv1_set_max_ac_brake_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_MAX_AC_BRAKE_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_MAX_AC_BRAKE_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_MAX_AC_BRAKE_CURRENT_LENGTH);
 }
 
-/*CAN_HV500_SetMaxDcCurrent_ID*/
-void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetMaxDcCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_MaxDcCurrent(data.message, max_dc_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetMaxDcCurrent*/
+void can_bus_send_FSIC_SetMaxDcCurrent(uint8_t inv_id, int16_t max_dc_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_max_dc_current_t msg;
+    fsic_inv1_set_max_dc_current_init(&msg);
+    msg.inv1_cmd_max_dc_current = max_dc_current;
+    uint8_t data[8];
+    fsic_inv1_set_max_dc_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_MAX_DC_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_MAX_DC_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_MAX_DC_CURRENT_LENGTH);
 }
 
-/*CAN_HV500_SetMaxDcBrakeCurrent_ID*/
-void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetMaxDcBrakeCurrent_ID;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    //    MAP_ENCODE_CMD_MaxDcBrakeCurrent(data.message, max_dc_brake_current);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetMaxDcBrakeCurrent*/
+void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake_current, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_max_dc_brake_current_t msg;
+    fsic_inv1_set_max_dc_brake_current_init(&msg);
+    msg.inv1_cmd_max_dc_brake_current = max_dc_brake_current;
+    uint8_t data[8];
+    fsic_inv1_set_max_dc_brake_current_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_MAX_DC_BRAKE_CURRENT_FRAME_ID
+                                      : FSIC_INV1_SET_MAX_DC_BRAKE_CURRENT_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_MAX_DC_BRAKE_CURRENT_LENGTH);
 }
 
-/*Send_CAN_HV500_SetDriveEnable*/
-void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_HV500_SetDriveEnable_ID;
-    data.length = 1;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_CMD_DriveEnable(data.message, drive_enable);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+/*Send_CAN_FSIC_SetDriveEnable*/
+void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_HandleTypeDef *hcan) {
+    struct fsic_inv1_set_drive_enable_t msg;
+    fsic_inv1_set_drive_enable_init(&msg);
+    msg.inv1_cmd_drive_enable = drive_enable;
+    uint8_t data[8];
+    fsic_inv1_set_drive_enable_pack(data, &msg, sizeof(data));
+    uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_DRIVE_ENABLE_FRAME_ID
+                                      : FSIC_INV1_SET_DRIVE_ENABLE_FRAME_ID;
+    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_DRIVE_ENABLE_LENGTH);
 }
 
-/*Send_CAN_HV500_SetDriveEnableLimit*/
+/*Send_Powertrain_Bus_1 — VCU status to BMS
+ * TODO: The CAN ID for this VCU status message needs to be verified against the vehicle CAN DB.
+ *       0x123 is a placeholder — powertrain_t26.h does not define a VCU-to-BMS status frame.
+ *       WARNING: 0x123 conflicts with POWERTRAIN_T26_SLAVE_06_VOLTAGE_ID_1_FRAME_ID — DO NOT use
+ *       this ID on CAN2 without confirming the correct VCU status frame ID first.
+ */
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan) {
-    can_data_t data;
-    data.id = CAN_PWT_VCU_ID_1;
-    data.length = 8;
-
-    memset(data.message, 0x00, sizeof(data.message));
-
-    MAP_ENCODE_PWT_R2D_STATE(data.message, r2d);
-    MAP_ENCODE_PWT_IGNITION_STATE(data.message, ignition);
-
-    can_bus_send(hcan, data.id, data.message, data.length);
+    uint8_t data[8] = {0};
+    data[0] = r2d;
+    data[1] = ignition;
+    /* TODO: Replace 0x123 with the correct VCU-to-BMS status CAN ID */
+    can_bus_send(hcan, 0x123, data, 8);
 }
 
 void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan) {
@@ -256,79 +239,187 @@ void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef
 =========================================================
 */
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* bms, HV500* hv500, IVT_t* ivt) {
-    switch (RxHeader.StdId) {
-        case CAN_PWT_BMS_ID_3:
-            bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
-            bms->low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
-            // bms->precharge_circuit_state = data[6];
-            break;
+void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, FSIC_t* fsic2, IVT_t* ivt) {
+    const uint8_t *data = msg->data;
+
+    switch (msg->id) {
+
+        /* ---- BMS Messages (TODO: old CAN_PWT_BMS_ID_* are undefined, need new DBC definitions) ---- */
+        // TODO: BMS messages need new DBC definitions - old CAN_PWT_BMS_ID_* are undefined
+        // case CAN_PWT_BMS_ID_3:
+        //     bms->high_cell_temp = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_TEMP(data);
+        //     bms->low_cell_temp = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_TEMP(data);
+        //     break;
+
         case 0x702:
             bms->precharge_circuit_state = data[1];  // TODO NEW BMS PRE CHARGE STATE ID, CHECK THIS
             break;
-        case CAN_HV500_ERPM_DUTY_VOLTAGE_ID:
-            hv500->Actual_ERPM = MAP_DECODE_Actual_ERPM(data);
-            // printf("Actual ERPM: %ld\n", hv500->Actual_ERPM);
-            hv500->Actual_Duty = MAP_DECODE_Actual_Duty(data);
-            hv500->Actual_InputVoltage = MAP_DECODE_Actual_InputVoltage(data);
+
+        /* ---- FSIC INV1 RX: ERPM/Duty/Voltage (0x404) ---- */
+        case FSIC_INV1_ERPM_DUTY_VOLTAGE_FRAME_ID: {
+            struct fsic_inv1_erpm_duty_voltage_t m;
+            fsic_inv1_erpm_duty_voltage_init(&m);
+            fsic_inv1_erpm_duty_voltage_unpack(&m, data, msg->dlc);
+            fsic1->Actual_ERPM = m.inv1_actual_erpm;
+            fsic1->Actual_Duty = m.inv1_actual_duty;
+            fsic1->Actual_InputVoltage = (uint16_t)m.inv1_actual_input_voltage;
             break;
+        }
+
+        /* ---- FSIC INV2 RX: ERPM/Duty/Voltage (0x405) ---- */
+        case FSIC_INV2_ERPM_DUTY_VOLTAGE_FRAME_ID: {
+            struct fsic_inv2_erpm_duty_voltage_t m;
+            fsic_inv2_erpm_duty_voltage_init(&m);
+            fsic_inv2_erpm_duty_voltage_unpack(&m, data, msg->dlc);
+            fsic2->Actual_ERPM = m.inv2_actual_erpm;
+            fsic2->Actual_Duty = m.inv2_actual_duty;
+            fsic2->Actual_InputVoltage = (uint16_t)m.inv2_actual_input_voltage;
+            break;
+        }
+
+        /* ---- IVT Result W (0x526) ---- */
         case 0x526:
             // byte 2 to 5 its power in motorola (big endian)
             ivt->result_W = (int32_t)((data[2] << 24) | (data[3] << 16) | (data[4] << 8) | data[5]);
             break;
 
-        case CAN_HV500_AC_DC_current_ID:
-            hv500->Actual_ACCurrent = MAP_DECODE_Actual_ACCurrent(data);
-            hv500->Actual_DCCurrent = MAP_DECODE_Actual_DCCurrent(data);
+        /* ---- FSIC INV1 RX: AC/DC Current (0x424) ---- */
+        case FSIC_INV1_AC_DC_CURRENT_FRAME_ID: {
+            struct fsic_inv1_ac_dc_current_t m;
+            fsic_inv1_ac_dc_current_init(&m);
+            fsic_inv1_ac_dc_current_unpack(&m, data, msg->dlc);
+            fsic1->Actual_ACCurrent = m.inv1_actual_ac_current;
+            fsic1->Actual_DCCurrent = m.inv1_actual_dc_current;
             break;
+        }
 
-        case CAN_HV500_Temperatures_ID:
-            hv500->Actual_TempController = MAP_DECODE_Actual_TempController(data);
-            hv500->Actual_TempMotor = MAP_DECODE_Actual_TempMotor(data);
-            hv500->Actual_FaultCode = MAP_DECODE_Actual_FaultCode(data);
+        /* ---- FSIC INV2 RX: AC/DC Current (0x425) ---- */
+        case FSIC_INV2_AC_DC_CURRENT_FRAME_ID: {
+            struct fsic_inv2_ac_dc_current_t m;
+            fsic_inv2_ac_dc_current_init(&m);
+            fsic_inv2_ac_dc_current_unpack(&m, data, msg->dlc);
+            fsic2->Actual_ACCurrent = m.inv2_actual_ac_current;
+            fsic2->Actual_DCCurrent = m.inv2_actual_dc_current;
             break;
+        }
 
-        case CAN_HV500_FOC_ID:
-            hv500->Actual_FOC_id = MAP_DECODE_Actual_FOC_id(data);
-            hv500->Actual_FOC_iq = MAP_DECODE_Actual_FOC_iq(data);
+        /* ---- FSIC INV1 RX: Temperatures (0x444) ---- */
+        case FSIC_INV1_TEMPERATURES_FRAME_ID: {
+            struct fsic_inv1_temperatures_t m;
+            fsic_inv1_temperatures_init(&m);
+            fsic_inv1_temperatures_unpack(&m, data, msg->dlc);
+            fsic1->Actual_TempController = m.inv1_actual_temp_controller;
+            fsic1->Actual_TempMotor = m.inv1_actual_temp_motor;
+            fsic1->Actual_FaultCode = m.inv1_actual_fault_code;
             break;
+        }
 
-        case CAN_HV500_MISC_ID:
-            hv500->Actual_Throttle = MAP_DECODE_Actual_Throttle(data);
-            hv500->Actual_Brake = MAP_DECODE_Actual_Brake(data);
-            hv500->Digital_input_1 = MAP_DECODE_Digital_input_1(data);
-            hv500->Digital_input_2 = MAP_DECODE_Digital_input_2(data);
-            hv500->Digital_input_3 = MAP_DECODE_Digital_input_3(data);
-            hv500->Digital_input_4 = MAP_DECODE_Digital_input_4(data);
-            hv500->Digital_output_1 = MAP_DECODE_Digital_output_1(data);
-            hv500->Digital_output_2 = MAP_DECODE_Digital_output_2(data);
-            hv500->Digital_output_3 = MAP_DECODE_Digital_output_3(data);
-            hv500->Digital_output_4 = MAP_DECODE_Digital_output_4(data);
-            hv500->Drive_enable = MAP_DECODE_Drive_enable(data);
-            hv500->Capacitor_temp_limit = MAP_DECODE_Capacitor_temp_limit(data);
-            hv500->DC_current_limit = MAP_DECODE_DC_current_limit(data);
-            hv500->Drive_enable_limit = MAP_DECODE_Drive_enable_limit(data);
-            hv500->IGBT_accel_limit = MAP_DECODE_IGBT_accel_limit(data);
-            hv500->IGBT_temp_limit = MAP_DECODE_IGBT_temp_limit(data);
-            hv500->Input_voltage_limit = MAP_DECODE_Input_voltage_limit(data);
-            hv500->Motor_accel_limit = MAP_DECODE_Motor_accel_limit(data);
-            hv500->Motor_temp_limit = MAP_DECODE_Motor_temp_limit(data);
-            hv500->RPM_min_limit = MAP_DECODE_RPM_min_limit(data);
-            hv500->RPM_max_limit = MAP_DECODE_RPM_max_limit(data);
-            hv500->Power_limit = MAP_DECODE_Power_limit(data);
-            hv500->CAN_map_version = MAP_DECODE_CAN_map_version(data);
+        /* ---- FSIC INV2 RX: Temperatures (0x445) ---- */
+        case FSIC_INV2_TEMPERATURES_FRAME_ID: {
+            struct fsic_inv2_temperatures_t m;
+            fsic_inv2_temperatures_init(&m);
+            fsic_inv2_temperatures_unpack(&m, data, msg->dlc);
+            fsic2->Actual_TempController = m.inv2_actual_temp_controller;
+            fsic2->Actual_TempMotor = m.inv2_actual_temp_motor;
+            fsic2->Actual_FaultCode = m.inv2_actual_fault_code;
             break;
+        }
 
-        case CAN_PWT_BMS_ID_1:
-            bms->instant_voltage = MAP_DECODE_PWT_BMS_PACK_INSTANT_VOLTAGE(data);
-            bms->soc = MAP_DECODE_PWT_BMS_PACK_SOC(data);
+        /* ---- FSIC INV1 RX: FOC (0x464) ---- */
+        case FSIC_INV1_FOC_FRAME_ID: {
+            struct fsic_inv1_foc_t m;
+            fsic_inv1_foc_init(&m);
+            fsic_inv1_foc_unpack(&m, data, msg->dlc);
+            fsic1->Actual_FOC_id = m.inv1_actual_foc_id;
+            fsic1->Actual_FOC_iq = m.inv1_actual_foc_iq;
             break;
+        }
 
-        case CAN_PWT_BMS_ID_2:
-            bms->high_cell_voltage = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_VOLTAGE(data);
-            bms->low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
-            bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
+        /* ---- FSIC INV2 RX: FOC (0x465) ---- */
+        case FSIC_INV2_FOC_FRAME_ID: {
+            struct fsic_inv2_foc_t m;
+            fsic_inv2_foc_init(&m);
+            fsic_inv2_foc_unpack(&m, data, msg->dlc);
+            fsic2->Actual_FOC_id = m.inv2_actual_foc_id;
+            fsic2->Actual_FOC_iq = m.inv2_actual_foc_iq;
             break;
+        }
+
+        /* ---- FSIC INV1 RX: MISC (0x484) ---- */
+        case FSIC_INV1_MISC_FRAME_ID: {
+            struct fsic_inv1_misc_t m;
+            fsic_inv1_misc_init(&m);
+            fsic_inv1_misc_unpack(&m, data, msg->dlc);
+            fsic1->Actual_Throttle = m.inv1_actual_throttle;
+            fsic1->Actual_Brake = m.inv1_actual_brake;
+            fsic1->Digital_input_1 = m.inv1_digital_input_1;
+            fsic1->Digital_input_2 = m.inv1_digital_input_2;
+            fsic1->Digital_input_3 = m.inv1_digital_input_3;
+            fsic1->Digital_input_4 = m.inv1_digital_input_4;
+            fsic1->Digital_output_1 = m.inv1_digital_output_1;
+            fsic1->Digital_output_2 = m.inv1_digital_output_2;
+            fsic1->Digital_output_3 = m.inv1_digital_output_3;
+            fsic1->Digital_output_4 = m.inv1_digital_output_4;
+            fsic1->Drive_enable = m.inv1_drive_enable;
+            fsic1->Capacitor_temp_limit = m.inv1_capacitor_temp_limit;
+            fsic1->DC_current_limit = m.inv1_dc_current_limit;
+            fsic1->Drive_enable_limit = m.inv1_drive_enable_limit;
+            fsic1->IGBT_accel_limit = m.inv1_igbt_accel_limit;
+            fsic1->IGBT_temp_limit = m.inv1_igbt_temp_limit;
+            fsic1->Input_voltage_limit = m.inv1_input_voltage_limit;
+            fsic1->Motor_accel_limit = m.inv1_motor_accel_limit;
+            fsic1->Motor_temp_limit = m.inv1_motor_temp_limit;
+            fsic1->RPM_min_limit = m.inv1_rpm_min_limit;
+            fsic1->RPM_max_limit = m.inv1_rpm_max_limit;
+            fsic1->Power_limit = m.inv1_power_limit;
+            fsic1->CAN_map_version = m.inv1_can_map_version;
+            break;
+        }
+
+        /* ---- FSIC INV2 RX: MISC (0x485) ---- */
+        case FSIC_INV2_MISC_FRAME_ID: {
+            struct fsic_inv2_misc_t m;
+            fsic_inv2_misc_init(&m);
+            fsic_inv2_misc_unpack(&m, data, msg->dlc);
+            fsic2->Actual_Throttle = m.inv2_actual_throttle;
+            fsic2->Actual_Brake = m.inv2_actual_brake;
+            fsic2->Digital_input_1 = m.inv2_digital_input_1;
+            fsic2->Digital_input_2 = m.inv2_digital_input_2;
+            fsic2->Digital_input_3 = m.inv2_digital_input_3;
+            fsic2->Digital_input_4 = m.inv2_digital_input_4;
+            fsic2->Digital_output_1 = m.inv2_digital_output_1;
+            fsic2->Digital_output_2 = m.inv2_digital_output_2;
+            fsic2->Digital_output_3 = m.inv2_digital_output_3;
+            fsic2->Digital_output_4 = m.inv2_digital_output_4;
+            fsic2->Drive_enable = m.inv2_drive_enable;
+            fsic2->Capacitor_temp_limit = m.inv2_capacitor_temp_limit;
+            fsic2->DC_current_limit = m.inv2_dc_current_limit;
+            fsic2->Drive_enable_limit = m.inv2_drive_enable_limit;
+            fsic2->IGBT_accel_limit = m.inv2_igbt_accel_limit;
+            fsic2->IGBT_temp_limit = m.inv2_igbt_temp_limit;
+            fsic2->Input_voltage_limit = m.inv2_input_voltage_limit;
+            fsic2->Motor_accel_limit = m.inv2_motor_accel_limit;
+            fsic2->Motor_temp_limit = m.inv2_motor_temp_limit;
+            fsic2->RPM_min_limit = m.inv2_rpm_min_limit;
+            fsic2->RPM_max_limit = m.inv2_rpm_max_limit;
+            fsic2->Power_limit = m.inv2_power_limit;
+            fsic2->CAN_map_version = m.inv2_can_map_version;
+            break;
+        }
+
+        /* ---- BMS Messages (TODO: old CAN_PWT_BMS_ID_* are undefined, need new DBC definitions) ---- */
+        // TODO: BMS messages need new DBC definitions - old CAN_PWT_BMS_ID_* are undefined
+        // case CAN_PWT_BMS_ID_1:
+        //     bms->instant_voltage = MAP_DECODE_PWT_BMS_PACK_INSTANT_VOLTAGE(data);
+        //     bms->soc = MAP_DECODE_PWT_BMS_PACK_SOC(data);
+        //     break;
+
+        // case CAN_PWT_BMS_ID_2:
+        //     bms->high_cell_voltage = MAP_DECODE_PWT_BMS_PACK_HIGH_CELL_VOLTAGE(data);
+        //     bms->low_cell_voltage = MAP_DECODE_PWT_BMS_PACK_LOW_CELL_VOLTAGE(data);
+        //     bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
+        //     break;
+
         case APPS_ADC_RAW_ID:
         	//Fill out the variables previously populated by ADC2
         	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is trying to read it
@@ -343,6 +434,7 @@ void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t* data, BMSvars_t* 
         case R2D_AND_IGN_ID:
         	vcu.ignition_switch_signal = data[0];
         	vcu.r2d_button_signal = data[1];
+        	break;
         default:
             break;
     }
@@ -427,9 +519,10 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  *
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
-    uint8_t dlc_bits = RxHeader.DLC * 8;
-    switch (RxHeader.StdId) {
+void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
+    const uint8_t *data = msg->data;
+    uint8_t dlc_bits = msg->dlc * 8;
+    switch (msg->id) {
         case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
             struct autonomous_temporary_acu_ms_t acu_ms;
             autonomous_temporary_acu_ms_init(&acu_ms);
@@ -508,9 +601,9 @@ void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *a
 /**
  * @brief Send VCU_ frame (0x20) - Basic pedal and power data
  * @param hcan CAN handle for the data bus
- * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param hv500 Pointer to FSIC_t struct containing inverter data
  */
-void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
+void send_vcu_0(CAN_HandleTypeDef *hcan, const FSIC_t *hv500) {
     struct data_dbc_vcu__t vcu_frame;
     uint8_t data[8];
 
@@ -536,17 +629,17 @@ void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
 /**
  * @brief Send VCU_1 frame (0x21) - Temperature and voltage data
  * @param hcan CAN handle for the data bus
- * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param hv500 Pointer to FSIC_t struct containing inverter data
  * @param bms Pointer to BMSvars_t struct containing BMS data
  */
-void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms) {
+void send_vcu_1(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms) {
     struct data_dbc_vcu_1_t vcu1_frame;
     uint8_t data[8];
 
     // Initialize the frame
     data_dbc_vcu_1_init(&vcu1_frame);
 
-    // Populate with actual VCU data from HV500 and BMS
+    // Populate with actual VCU data from FSIC_t and BMS
     vcu1_frame.inv_temperature = (uint16_t)hv500->Actual_TempController;  // Inverter temperature
     vcu1_frame.motor_temperature = (uint16_t)hv500->Actual_TempMotor;     // Motor temperature
     vcu1_frame.bms_voltage = bms->instant_voltage;                        // BMS voltage
@@ -562,9 +655,9 @@ void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bm
 /**
  * @brief Send VCU_2 frame (0x22) - Faults and state data
  * @param hcan CAN handle for the data bus
- * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param hv500 Pointer to FSIC_t struct containing inverter data
  */
-void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
+void send_vcu_2(CAN_HandleTypeDef *hcan, const FSIC_t *hv500) {
     struct data_dbc_vcu_2_t vcu2_frame;
     uint8_t data[8];
 
@@ -596,9 +689,9 @@ void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500) {
  * @param ignition_manual Manual ignition signal
  * @param r2d_auto Autonomous R2D signal
  * @param ignition_auto Autonomous ignition signal
- * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param hv500 Pointer to FSIC_t struct containing inverter data
  */
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500) {
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const FSIC_t *hv500) {
     struct data_dbc_vcu_3_t vcu3_frame;
     uint8_t data[8];
 
@@ -649,12 +742,12 @@ void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu) {
 /**
  * @brief Send all VCU frames to the data bus
  * @param hcan CAN handle for the data bus
- * @param hv500 Pointer to HV500 struct containing inverter data
+ * @param hv500 Pointer to FSIC_t struct containing inverter data
  * @param bms Pointer to BMSvars_t struct containing BMS data
  * @param acu Pointer to ACU_t struct containing autonomous control unit data
  * @note send_vcu_3 is excluded as it requires VCU state parameters
  */
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu) {
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms, const ACU_t *acu) {
     send_vcu_0(hcan, hv500);
     send_vcu_1(hcan, hv500, bms);
     send_vcu_2(hcan, hv500);

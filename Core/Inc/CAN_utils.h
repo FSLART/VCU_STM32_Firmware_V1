@@ -5,6 +5,9 @@
 
 #include "main.h"
 #include "stm32f7xx_hal.h"
+#include "can_queue.h"
+#include "fsic.h"
+#include "powertrain_t26.h"
 
 /* External CAN handle declarations */
 extern CAN_HandleTypeDef hcan1;
@@ -17,7 +20,7 @@ typedef struct {
     uint8_t length;
 } can_data_t;
 
-/*data stucture for interating with the HV500 inverter*/
+/*data structure for interacting with FSIC inverter (INV1 or INV2)*/
 typedef struct {
     int32_t Actual_ERPM;            // 32-bit signed, bytes 0-3
     int16_t Actual_Duty;            // 16-bit signed, bytes 4-5, scale 10
@@ -53,7 +56,7 @@ typedef struct {
     uint8_t Power_limit;            // 1-bit, bit 42
     uint8_t CAN_map_version;        // 8-bit unsigned, byte 7
 
-    // Transmit data (command values to send to HV500)
+    // Transmit data (command values to send to FSIC_t)
     int16_t SetCurrent;               // Set AC current, 16-bit signed, scale 10
     int16_t SetBrakeCurrent;          // Set brake current, 16-bit signed, scale 10 (positive only)
     int32_t SetERPM;                  // Set speed (ERPM), 32-bit signed
@@ -66,7 +69,7 @@ typedef struct {
     int16_t SetMaxDCCurrent;          // Set max DC current, 16-bit signed, scale 10
     int16_t SetMaxDCBrakeCurrent;     // Set max DC brake current, 16-bit signed, scale 10 (negative only)
     uint8_t DriveEnable;              // Drive enable, 8-bit unsigned (0 or 1)
-} HV500;
+} FSIC_t;
 
 typedef enum {
     AS_STATE_OFF = 1,    // System is off or not initialized
@@ -192,81 +195,92 @@ extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5
 void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len);
 
 /**
- * @brief Sends HV500 AC current setting
- * @param ac_current AC current value
+ * @brief Sets AC current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param ac_current AC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetAcCurrent(uint16_t ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetAcCurrent(uint8_t inv_id, int16_t ac_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 brake current setting
- * @param brake_current Brake current value
+ * @brief Sets brake current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param brake_current Brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetBrakeCurrent(uint16_t brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 ERPM setting
- * @param erpm ERPM value
+ * @brief Sets electrical RPM on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param erpm ERPM value (int32_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetERPM(uint32_t erpm, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 position setting
- * @param position Position value
+ * @brief Sets motor position on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param position Position value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetPosition(uint32_t position, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 relative current setting
- * @param rel_current Relative current value
+ * @brief Sets relative current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param rel_current Relative current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetRelCurrent(int16_t rel_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 relative brake current setting
- * @param rel_brake_current Relative brake current value
+ * @brief Sets relative brake current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param rel_brake_current Relative brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetRelBrakeCurrent(uint32_t rel_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetRelBrakeCurrent(uint8_t inv_id, int16_t rel_brake_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 maximum AC current setting
- * @param max_ac_current Maximum AC current value
+ * @brief Sets maximum AC current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param max_ac_current Maximum AC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxAcCurrent(uint32_t max_ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxAcCurrent(uint8_t inv_id, int16_t max_ac_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 maximum AC brake current setting
- * @param max_ac_brake_current Maximum AC brake current value
+ * @brief Sets maximum AC brake current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param max_ac_brake_current Maximum AC brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxAcBrakeCurrent(uint32_t max_ac_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxAcBrakeCurrent(uint8_t inv_id, int16_t max_ac_brake_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 maximum DC current setting
- * @param max_dc_current Maximum DC current value
+ * @brief Sets maximum DC current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param max_dc_current Maximum DC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxDcCurrent(uint32_t max_dc_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxDcCurrent(uint8_t inv_id, int16_t max_dc_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 maximum DC brake current setting
- * @param max_dc_brake_current Maximum DC brake current value
+ * @brief Sets maximum DC brake current on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param max_dc_brake_current Maximum DC brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetMaxDcBrakeCurrent(uint32_t max_dc_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake_current, CAN_HandleTypeDef *hcan);
 
 /**
- * @brief Sends HV500 drive enable setting
- * @param drive_enable Drive enable value
+ * @brief Sets drive enable on FSIC inverter
+ * @param inv_id Inverter ID (1 for INV1, 2 for INV2)
+ * @param drive_enable Drive enable value (uint8_t, 0 or 1)
  * @param hcan CAN handle
  */
-void can_bus_send_HV500_SetDriveEnable(uint32_t drive_enable, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_HandleTypeDef *hcan);
 
 /**
  * @brief Sends powertrain bus message with R2D and ignition states
@@ -294,16 +308,16 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
 
 void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res);
 
-void decode_auto_bus(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, AS_System_t *as_system, ACU_t *acu, RES_t *res);
+void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res);
 
-void can_filter_id_bus2(CAN_RxHeaderTypeDef RxHeader, uint8_t *data, BMSvars_t *bms, HV500 *hv500, IVT_t *ivt);
+void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t *bms, FSIC_t *fsic1, FSIC_t *fsic2, IVT_t *ivt);
 
-void send_vcu_0(CAN_HandleTypeDef *hcan, const HV500 *hv500);
-void send_vcu_1(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms);
-void send_vcu_2(CAN_HandleTypeDef *hcan, const HV500 *hv500);
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const HV500 *hv500);
+void send_vcu_0(CAN_HandleTypeDef *hcan, const FSIC_t *hv500);
+void send_vcu_1(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms);
+void send_vcu_2(CAN_HandleTypeDef *hcan, const FSIC_t *hv500);
+void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const FSIC_t *hv500);
 void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const HV500 *hv500, const BMSvars_t *bms, const ACU_t *acu);
+void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms, const ACU_t *acu);
 
 void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 
