@@ -4,17 +4,10 @@
 
 #include "can_queue.h"
 
-// #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-// #include "../../CAN_DBC/generated/Autonomous_temporary/autonomous_temporary.h"
-// #include "../../CAN_DBC/generated/DataDBC/data_dbc.h"
-
-#include "autonomous_temporary.h"
+#include "autonomous_t26.h"
 #include "data_dbc.h"
 #include "fsic.h"
 #include "powertrain_t26.h"
-
-// Placeholder autonomous torque command
-#define AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID (0x49Au)
 
 // RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
 #define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
@@ -459,28 +452,19 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
         rpm = 0;
     }
 
-    /*
-        struct autonomous_temporary_vcu_rpm_t vcu_rpm_msg;
+    struct autonomous_t26_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
 
-    autonomous_temporary_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.rpm = rpm;  // Convert long to uint16_t
+    autonomous_t26_vcu_rpm_init(&vcu_rpm_msg);
+    vcu_rpm_msg.motor_rpm_left = (uint16_t)rpm;
+    vcu_rpm_msg.motor_rpm_right = (uint16_t)rpm;
+    vcu_rpm_msg.motor_current_left = 0;
+    vcu_rpm_msg.motor_current_right = 0;
 
-    uint8_t error = autonomous_temporary_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
-    if (error > 0) {
-        can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_RPM_FRAME_ID, data, AUTONOMOUS_TEMPORARY_VCU_RPM_LENGTH);
+    int size = autonomous_t26_vcu_rpm_pack(data, &vcu_rpm_msg, sizeof(data));
+    if (size >= 0) {
+        can_bus_send(hcan, AUTONOMOUS_T26_VCU_RPM_FRAME_ID, data, AUTONOMOUS_T26_VCU_RPM_LENGTH);
     }
-    */
-
-    uint16_t rpm_u16 = (uint16_t)rpm;
-
-    // printf("RPM: %ld , RPM_uint16_t: %d \n", rpm, rpm_u16);
-    can_data_t data;
-    data.id = 0x509;
-    data.length = 2;
-    data.message[0] = rpm_u16 & 0xFF;         // Low byte (LSB first)
-    data.message[1] = (rpm_u16 >> 8) & 0xFF;  // High byte (MSB second)
-    can_bus_send(hcan, data.id, data.message, data.length);
 }
 
 /**
@@ -491,27 +475,38 @@ void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
  * @param brake_pressure_front The front brake pressure value (0-255)
  */
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front) {
+    struct autonomous_t26_vcu_hv_t hv_signal_msg;
     uint8_t data[8];
-    data[0] = hv_state;
-    data[1] = brake_pressure_front;
-    data[2] = 0;
-    // autonomous_temporary_vcu_hv_init(&hv_signal_msg);
-    // hv_signal_msg.hv = hv_state;  // Set the HV state
-    // autonomous_temporary_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
-    can_bus_send(hcan, AUTONOMOUS_TEMPORARY_VCU_HV_FRAME_ID, data, 3);
+
+    autonomous_t26_vcu_hv_init(&hv_signal_msg);
+    hv_signal_msg.hv = hv_state;
+    hv_signal_msg.brake_pressure_front = brake_pressure_front;
+    hv_signal_msg.brake_pressure_rear = 0;
+
+    int size = autonomous_t26_vcu_hv_pack(data, &hv_signal_msg, sizeof(data));
+    if (size >= 0) {
+        can_bus_send(hcan, AUTONOMOUS_T26_VCU_HV_FRAME_ID, data, AUTONOMOUS_T26_VCU_HV_LENGTH);
+    }
 }
 
 void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state) {
-    can_data_t data;
-    data.id = 0x600;
-    data.length = 6;
-    data.message[0] = ignition_manual;  // Manual ignition state
-    data.message[1] = r2d_manual;       // Manual R2D state
-    data.message[2] = ignition_auto;    // Auto ignition state
-    data.message[3] = r2d_auto;         // Auto R2D state
-    data.message[4] = shutdown_signal;
-    data.message[5] = vcu_state;  // VCU state
-    can_bus_send(hcan, data.id, data.message, data.length);
+    struct autonomous_t26_vcu_ign_r2_d_t ign_r2d_msg;
+    uint8_t data[8];
+
+    autonomous_t26_vcu_ign_r2_d_init(&ign_r2d_msg);
+    ign_r2d_msg.ignition_manual = ignition_manual;
+    ign_r2d_msg.r2d_manual = r2d_manual;
+    ign_r2d_msg.ignition_auto = ignition_auto;
+    ign_r2d_msg.r2d_auto = r2d_auto;
+    ign_r2d_msg.shutdown_signal = shutdown_signal;
+    ign_r2d_msg.vcu_state = vcu_state;
+    ign_r2d_msg.r2_d_button_raw = 0;
+    ign_r2d_msg.ignition_switch_raw = 0;
+
+    int size = autonomous_t26_vcu_ign_r2_d_pack(data, &ign_r2d_msg, sizeof(data));
+    if (size >= 0) {
+        can_bus_send(hcan, AUTONOMOUS_T26_VCU_IGN_R2_D_FRAME_ID, data, AUTONOMOUS_T26_VCU_IGN_R2_D_LENGTH);
+    }
 }
 
 /**
@@ -523,71 +518,61 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
     const uint8_t *data = msg->data;
     uint8_t dlc_bits = msg->dlc * 8;
     switch (msg->id) {
-        case AUTONOMOUS_TEMPORARY_ACU_MS_FRAME_ID:
-            struct autonomous_temporary_acu_ms_t acu_ms;
-            autonomous_temporary_acu_ms_init(&acu_ms);
-            acu_ms.mission_select = 0;
-            autonomous_temporary_acu_ms_unpack(&acu_ms, data, dlc_bits);
-            acu->mission_select = acu_ms.mission_select;
+        case AUTONOMOUS_T26_ACU_FRAME_ID: {
+            struct autonomous_t26_acu_t acu_msg;
+            autonomous_t26_acu_init(&acu_msg);
+            autonomous_t26_acu_unpack(&acu_msg, data, dlc_bits);
+            acu->mission_select = acu_msg.mission_select;
+            acu->ignition_ad = acu_msg.ign;
+            acu->ASMS = acu_msg.asms;
+            acu->is_in_emergency = acu_msg.emergency;
             break;
-        case AUTONOMOUS_TEMPORARY_ACU_IGN_FRAME_ID:
-            struct autonomous_temporary_acu_ign_t acu_ign;
-            autonomous_temporary_acu_ign_init(&acu_ign);
-            acu_ign.ign = 0;
-            autonomous_temporary_acu_ign_unpack(&acu_ign, data, dlc_bits);
-            acu->ignition_ad = acu_ign.ign;
-            acu->ASMS = acu_ign.asms;
-            acu->is_in_emergency = acu_ign.emergency;
+        }
+        case AUTONOMOUS_T26_JETSON_FRAME_ID: {
+            struct autonomous_t26_jetson_t jetson;
+            autonomous_t26_jetson_init(&jetson);
+            autonomous_t26_jetson_unpack(&jetson, data, dlc_bits);
+            as_system->mission_select = jetson.as_mission;
             break;
-        case AUTONOMOUS_TEMPORARY_JETSON_MS_FRAME_ID:
-            struct autonomous_temporary_jetson_ms_t jetson_ms;
-            autonomous_temporary_jetson_ms_init(&jetson_ms);
-            jetson_ms.mission_select = 0;
-            autonomous_temporary_jetson_ms_unpack(&jetson_ms, data, dlc_bits);
-            as_system->mission_select = jetson_ms.mission_select;
-            break;
-        // case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-        case AUTONOMOUS_TEMPORARY_RD_JETSON_FRAME_ID:
-            struct autonomous_temporary_rd_jetson_t rd_jetson;
-            autonomous_temporary_rd_jetson_init(&rd_jetson);
-            rd_jetson.rd = 0;
-            autonomous_temporary_rd_jetson_unpack(&rd_jetson, data, dlc_bits);
-            as_system->ready_to_drive_ad = rd_jetson.rd;
-            break;
-        case AUTONOMOUS_TEMPORARY_RES_FRAME_ID:
-            struct autonomous_temporary_res_t res_ad;
-            autonomous_temporary_res_init(&res_ad);
-            res_ad.signal = 0;
-            autonomous_temporary_res_unpack(&res_ad, data, dlc_bits);
+        }
+        case AUTONOMOUS_T26_RES_FRAME_ID: {
+            struct autonomous_t26_res_t res_ad;
+            autonomous_t26_res_init(&res_ad);
+            autonomous_t26_res_unpack(&res_ad, data, dlc_bits);
             res->signal = res_ad.signal;
             break;
-        case AUTONOMOUS_TEMPORARY_RPM_TARGET_FRAME_ID:
-            struct autonomous_temporary_rpm_target_t target_rpm;
-            autonomous_temporary_rpm_target_init(&target_rpm);
-            target_rpm.rpm_target = 0;
-            autonomous_temporary_rpm_target_unpack(&target_rpm, data, dlc_bits);
+        }
+        case AUTONOMOUS_T26_VCU_RPM_TARGET_FRAME_ID: {
+            struct autonomous_t26_vcu_rpm_target_t target_rpm;
+            autonomous_t26_vcu_rpm_target_init(&target_rpm);
+            autonomous_t26_vcu_rpm_target_unpack(&target_rpm, data, dlc_bits);
             as_system->target_rpm = target_rpm.rpm_target;
             as_system->control_mode = AS_CONTROL_MODE_RPM;
             as_system->last_control_cmd_ms = HAL_GetTick();
             break;
-        case AUTONOMOUS_TEMPORARY_TORQUE_TARGET_FRAME_ID:
-            // Same byte shifting as RPM target (2-byte little-endian), interpreted as signed -100..100.
-            as_system->target_torque = (int16_t)((uint16_t)data[0] | ((uint16_t)data[1] << 8));
+        }
+        case AUTONOMOUS_T26_VCU_TORQUE_TARGET_FRAME_ID: {
+            struct autonomous_t26_vcu_torque_target_t target_torque;
+            autonomous_t26_vcu_torque_target_init(&target_torque);
+            autonomous_t26_vcu_torque_target_unpack(&target_torque, data, dlc_bits);
+            as_system->target_torque = target_torque.torque_target;
             as_system->control_mode = AS_CONTROL_MODE_TORQUE;
             as_system->last_control_cmd_ms = HAL_GetTick();
             break;
-        case AUTONOMOUS_TEMPORARY_AS_STATE_FRAME_ID:
-            struct autonomous_temporary_as_state_t as_state;
-            autonomous_temporary_as_state_init(&as_state);
-            as_state.state = 0;
-            autonomous_temporary_as_state_unpack(&as_state, data, dlc_bits);
-            as_system->state = as_state.state;
+        }
+        case AUTONOMOUS_T26_DV_STATUS_FRAME_ID: {
+            struct autonomous_t26_dv_status_t as_state;
+            autonomous_t26_dv_status_init(&as_state);
+            autonomous_t26_dv_status_unpack(&as_state, data, dlc_bits);
+            as_system->state = as_state.as_status;
             break;
-        case BRAKE_PRESSURE_ID:
-        	uint16_t raw_pressure = (data[1] << 8) | data[0];
-        	uint8_t resulting_pressure = raw_pressure*0.1;
-        	vcu.brake_pressure = resulting_pressure;
+        }
+        case BRAKE_PRESSURE_ID: {
+            uint16_t raw_pressure = (data[1] << 8) | data[0];
+            uint8_t resulting_pressure = raw_pressure * 0.1;
+            vcu.brake_pressure = resulting_pressure;
             break;
+        }
         default:
             break;
     }
