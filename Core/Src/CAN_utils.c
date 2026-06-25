@@ -464,23 +464,30 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
  * @param state The state of the autonomous system
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm) {
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm_left, uint32_t rpm_right) {
     // Scale down the RPM value
-    rpm = rpm / 10;
+    rpm_left = rpm_left / 10;
+    rpm_right = rpm_right / 10;
 
     // Clamp to uint16_t range for safety
-    if (rpm > 65535) {
-        rpm = 65535;
-    } else if (rpm <= 0) {
-        rpm = 0;
+    if (rpm_left > 65535) {
+        rpm_left = 65535;
+    } else if (rpm_left <= 0) {
+        rpm_left = 0;
+    }
+    
+    if (rpm_right > 65535) {
+        rpm_right = 65535;
+    } else if (rpm_right <= 0) {
+        rpm_right = 0;
     }
 
     struct autonomous_t26_vcu_rpm_t vcu_rpm_msg;
     uint8_t data[8];
 
     autonomous_t26_vcu_rpm_init(&vcu_rpm_msg);
-    vcu_rpm_msg.motor_rpm_left = (uint16_t)rpm;
-    vcu_rpm_msg.motor_rpm_right = (uint16_t)rpm;
+    vcu_rpm_msg.motor_rpm_left = (uint16_t)rpm_left;
+    vcu_rpm_msg.motor_rpm_right = (uint16_t)rpm_right;
     vcu_rpm_msg.motor_current_left = 0;
     vcu_rpm_msg.motor_current_right = 0;
 

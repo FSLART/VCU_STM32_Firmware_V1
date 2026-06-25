@@ -316,7 +316,7 @@ void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressur
 
 /* Autonomous bus functions */
 
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm);
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm_left, uint32_t rpm_right);
 
 void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front);
 void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);

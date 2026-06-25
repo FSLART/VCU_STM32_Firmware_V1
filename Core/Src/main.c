@@ -993,8 +993,7 @@ void HandleState(void) {
                 if (as_system.state == 5) {
                     can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                  // INV1 ERPM zero
                     can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                  // INV2 ERPM zero
-                    can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM);  // feedback to jetson
-                    // can_send_vcu_rpm(&hcan3, myFSIC1.Actual_ERPM);
+                    can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM, (uint32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
                     // driving
@@ -1008,8 +1007,7 @@ void HandleState(void) {
                     uint32_t erpm = as_system.target_rpm * 10;
                     can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);               // INV1 ERPM command
                     can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);               // INV2 ERPM command
-                    can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM);  // feedback to jetson
-                    // can_send_vcu_rpm(&hcan3, myFSIC1.Actual_ERPM);
+                    can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM, (uint32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
                     // printf("\n\rRPM: %d\n\r", myFSIC1.Actual_ERPM / 10);
