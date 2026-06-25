@@ -162,7 +162,7 @@ const char* state_names[] = {
     "STATE_READY_AUTONOMOUS",
     "STATE_AS_EMERGENCY"};
 
-long erpm_temporary = 0;  // Temporary variable for ERPM calculations
+
 
 #pragma endregion Global Variables
 
@@ -1265,8 +1265,7 @@ void execute_immediate_tasks(void) {
     // Heartbeat LED indicator
     heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
 
-    // Update moving average with new APPS values
-    MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
+
 
     // Update state machine
     UpdateState();
@@ -1407,13 +1406,6 @@ int main(void) {
             previous_tick_100ms = current_tick;
         }
 
-        // Optional: Add more timing intervals here if needed
-        // Example for 1000ms (1Hz) tasks:
-        // static uint32_t previous_tick_1s = 0;
-        // if (current_tick - previous_tick_1s >= 1000) {
-        //     execute_1s_tasks();s
-        //     previous_tick_1s = current_tick;
-        // }
     }
     /* USER CODE END 3 */
 }
