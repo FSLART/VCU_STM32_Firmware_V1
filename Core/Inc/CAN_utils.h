@@ -72,6 +72,20 @@ typedef struct {
 } FSIC_t;
 
 typedef enum {
+    STATE_INIT,                    // Initial startup state
+    STATE_SHUTDOWN,                // Shutdown state
+    STATE_STANDBY,                 // Ignition off
+    STATE_PRECHARGE,               // Ignition on, precharging
+    STATE_WAITING_FOR_R2D_MANUAL,  // Waiting for manual R2D signal
+    STATE_WAITING_FOR_R2D_AUTO,    // Waiting for autonomous R2D signal
+    STATE_READY_MANUAL,            // Ready to drive in manual mode
+    STATE_READY_AUTONOMOUS,        // Ready to drive in autonomous mode
+    STATE_AS_EMERGENCY             // Emergency condition detected
+} VCU_STATE_t;
+
+extern VCU_STATE_t current_state;
+
+typedef enum {
     AS_STATE_OFF = 1,    // System is off or not initialized
     AS_STATE_READY = 2,  // System is ready to engage autonomous mode
     AS_STATE_DRIVING = 3,
@@ -155,7 +169,8 @@ typedef struct {
 
     uint8_t brake_pressure;  // Brake pressure signal
 
-    bool ignition_ad;             // ignition comming from autonomous system
+    bool ignition_ad;             // ignition coming from autonomous system
+    bool ignition_ad_prev;        // Previous state for edge detection
     bool ignition_switch_signal;  // Ignition signal
 
     bool precharge_signal;  // Precharge signal
@@ -290,7 +305,7 @@ void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_
  */
 void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
 
-void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan);
+void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeDef *hcan);
 
 /**
  * @brief Send brake pressure data to CAN bus
@@ -318,12 +333,13 @@ void send_vcu_2(CAN_HandleTypeDef *hcan, const FSIC_t *hv500);
 void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const FSIC_t *hv500);
 void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
 void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms, const ACU_t *acu);
-
 void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
+void can_bus_send_vcu_state(void);
 
 /**
  * @brief CAN mailbox used for transmitting messages
  */
 extern uint32_t TxMailbox;
+
 
 #endif /* CAN_UTILS_H */

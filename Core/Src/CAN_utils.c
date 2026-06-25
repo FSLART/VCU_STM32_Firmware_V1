@@ -16,8 +16,6 @@
 //CAN 1 - DATA
 
 //CAN 2 - POWERTRAIN
-#define APPS_ADC_RAW_ID 0x710
-#define R2D_AND_IGN_ID 0x740
 //CAN 3 - AUTONOMOUS
 #define BRAKE_PRESSURE_ID 0x710
 // Initialize all signals to 0
@@ -94,14 +92,14 @@ void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CA
 
 /*Send_CAN_FSIC_SetERPM*/
 void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef *hcan) {
-    struct fsic_inv1_set_erpm_t msg;
-    fsic_inv1_set_erpm_init(&msg);
-    msg.inv1_cmd_target_speed = erpm;
-    uint8_t data[8];
-    fsic_inv1_set_erpm_pack(data, &msg, sizeof(data));
+    uint8_t data[4];
+    data[0] = (uint8_t)(erpm >> 24);
+    data[1] = (uint8_t)(erpm >> 16);
+    data[2] = (uint8_t)(erpm >> 8);
+    data[3] = (uint8_t)(erpm & 0xFF);
     uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_ERPM_FRAME_ID
                                       : FSIC_INV1_SET_ERPM_FRAME_ID;
-    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_ERPM_LENGTH);
+    can_bus_send(hcan, frame_id, data, 4);
 }
 
 /*Send_CAN_FSIC_SetPosition*/
@@ -118,14 +116,12 @@ void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleT
 
 /*Send_CAN_FSIC_SetRelCurrent*/
 void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_HandleTypeDef *hcan) {
-    struct fsic_inv1_set_rel_current_t msg;
-    fsic_inv1_set_rel_current_init(&msg);
-    msg.inv1_cmd_target_relative_current = rel_current;
-    uint8_t data[8];
-    fsic_inv1_set_rel_current_pack(data, &msg, sizeof(data));
+    uint8_t data[2];
+    data[0] = (uint8_t)(rel_current >> 8);
+    data[1] = (uint8_t)(rel_current & 0xFF);
     uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_REL_CURRENT_FRAME_ID
                                       : FSIC_INV1_SET_REL_CURRENT_FRAME_ID;
-    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_REL_CURRENT_LENGTH);
+    can_bus_send(hcan, frame_id, data, 2);
 }
 
 /*Send_CAN_FSIC_SetRelBrakeCurrent*/
@@ -190,14 +186,12 @@ void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake
 
 /*Send_CAN_FSIC_SetDriveEnable*/
 void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_HandleTypeDef *hcan) {
-    struct fsic_inv1_set_drive_enable_t msg;
-    fsic_inv1_set_drive_enable_init(&msg);
-    msg.inv1_cmd_drive_enable = drive_enable;
-    uint8_t data[8];
-    fsic_inv1_set_drive_enable_pack(data, &msg, sizeof(data));
+    uint8_t data[2];
+    data[0] = drive_enable;
+    data[1] = 0;
     uint32_t frame_id = (inv_id == 2) ? FSIC_INV2_SET_DRIVE_ENABLE_FRAME_ID
                                       : FSIC_INV1_SET_DRIVE_ENABLE_FRAME_ID;
-    can_bus_send(hcan, frame_id, data, FSIC_INV1_SET_DRIVE_ENABLE_LENGTH);
+    can_bus_send(hcan, frame_id, data, 2);
 }
 
 /*Send_Powertrain_Bus_1 — VCU status to BMS
@@ -214,14 +208,26 @@ void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hca
     can_bus_send(hcan, 0x123, data, 8);
 }
 
-void can_bus_send_bms_precharge_state(uint8_t precharge_state, CAN_HandleTypeDef *hcan) {
+void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeDef *hcan) {
+    static uint32_t last_send_time = 0;
+    static uint8_t last_value = 0xFF; // Start with invalid value to force first send
+    uint32_t current_time = HAL_GetTick();
+
+    // If the value changes, send immediately. Otherwise, rate-limit to 100Hz (10ms)
+    if (close_contactors == last_value && (current_time - last_send_time < 10)) {
+        return;
+    }
+
+    last_send_time = current_time;
+    last_value = close_contactors;
+
     can_data_t data;
     data.id = 0x83;
     data.length = 1;
 
     memset(data.message, 0x00, sizeof(data.message));
 
-    data.message[0] = precharge_state;
+    data.message[0] = close_contactors;
 
     can_bus_send(hcan, data.id, data.message, data.length);
 }
@@ -413,21 +419,38 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
         //     bms->avg_cell_voltage = MAP_DECODE_PWT_BMS_PACK_AVG_CELL_VOLTAGE(data);
         //     break;
 
-        case APPS_ADC_RAW_ID:
-        	//Fill out the variables previously populated by ADC2
-        	__disable_irq(); // Lock interrupts so this update doesnt happen while MovingAverage_Update() is trying to read it
-        	uint16_t apps1 = (data[1] << 8) | data[0];
-        	uint16_t apps2 = (data[3] << 8) | data[2];
-        	ADC2_APPS[0] = apps1*0.1;
-        	ADC2_APPS[1] = apps2*0.1;
-        	__enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
+        case POWERTRAIN_T26_APPS_ADC_RAW_FRAME_ID: {
+            struct powertrain_t26_apps_adc_raw_t apps_msg;
+            powertrain_t26_apps_adc_raw_init(&apps_msg);
+            powertrain_t26_apps_adc_raw_unpack(&apps_msg, data, msg->dlc);
+            
+            __disable_irq(); // Lock interrupts so this update doesn't happen while MovingAverage_Update() is trying to read it
+#ifdef POWERTRAIN_T26_APPS_ADC_RAW_APPS1_RAW_NAME
+            ADC2_APPS[0] = (uint16_t)apps_msg.apps1_raw;
+            ADC2_APPS[1] = (uint16_t)apps_msg.apps2_raw;
+#else
+            ADC2_APPS[0] = (uint16_t)apps_msg.apps1;
+            ADC2_APPS[1] = (uint16_t)apps_msg.apps2;
+#endif
+            __enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
-        	last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
-        	break;
-        case R2D_AND_IGN_ID:
-        	vcu.ignition_switch_signal = data[0];
-        	vcu.r2d_button_signal = data[1];
-        	break;
+            last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
+            break;
+        }
+        case POWERTRAIN_T26_DASH_BOARD_FRAME_ID: {
+            struct powertrain_t26_dash_board_t db_msg;
+            powertrain_t26_dash_board_init(&db_msg);
+            powertrain_t26_dash_board_unpack(&db_msg, data, msg->dlc);
+            
+#ifdef POWERTRAIN_T26_DASH_BOARD_IGNITION_SWITCH_RAW_NAME
+            vcu.ignition_switch_signal = db_msg.ignition_switch_raw;
+            vcu.r2d_button_signal = db_msg.r2d_button_raw;
+#else
+            vcu.ignition_switch_signal = db_msg.ignition;
+            vcu.r2d_button_signal = db_msg.ready_to_drive;
+#endif
+            break;
+        }
         default:
             break;
     }
@@ -650,14 +673,10 @@ void send_vcu_2(CAN_HandleTypeDef *hcan, const FSIC_t *hv500) {
     data_dbc_vcu_2_init(&vcu2_frame);
 
     // Populate with actual VCU data
-    // extern VCU_STATE_t current_state;  // VCU state machine
-    // extern APPS_Result_t result;       // APPS error status
-
     vcu2_frame.inv_faults = (uint16_t)hv500->Actual_FaultCode;  // Inverter faults
     vcu2_frame.lmt1 = (uint8_t)hv500->RPM_max_limit;            // RPM power limit
     vcu2_frame.lmt2 = (uint8_t)hv500->Motor_temp_limit;         // Current limit motor temp
-    // vcu2_frame.vcu_state = (uint8_t)current_state;               // VCU state machine current state
-    //  vcu2_frame.apps_error = (uint8_t)result.error_status;        // APPS error status
+    vcu2_frame.vcu_state = (uint8_t)current_state;               // VCU state machine current state
     vcu2_frame.power_plan = 0;  // Power plan switch - add variable when available
 
     // Pack the data
@@ -776,4 +795,24 @@ void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8
     data.message[7] = (uint8_t)((apps_1000 >> 8) & 0xFF);  // High byte of apps_1000
 
     can_bus_send(hcan, data.id, data.message, data.length);
+}
+
+void can_bus_send_vcu_state(void) {
+    // Send VCU_state DBC message on CAN2 (via TX queue) 
+    struct powertrain_t26_vcu_state_t state_msg; 
+    powertrain_t26_vcu_state_init(&state_msg); 
+    state_msg.vcu_state = (uint8_t)current_state; 
+ 
+    uint8_t state_data[8]; 
+    int pack_size = powertrain_t26_vcu_state_pack(state_data, &state_msg, sizeof(state_data)); 
+    if (pack_size >= 0) { 
+        can_msg_t state_can_msg = { 
+            .id = POWERTRAIN_T26_VCU_STATE_FRAME_ID, 
+            .dlc = POWERTRAIN_T26_VCU_STATE_LENGTH, 
+            .bus = CAN_BUS_2, 
+            .timestamp = HAL_GetTick(), 
+        }; 
+        memcpy(state_can_msg.data, state_data, 8); 
+        can_tx_enqueue(&state_can_msg); 
+    } 
 }

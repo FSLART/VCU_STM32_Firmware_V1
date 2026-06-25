@@ -5,12 +5,8 @@
 #include "can.h"
 
 /* Debug counters — watch in debugger; incremented on each successful hardware TX/RX */
-volatile uint32_t can1_tx_count = 0;
-volatile uint32_t can2_tx_count = 0;
-volatile uint32_t can3_tx_count = 0;
-volatile uint32_t can1_rx_count = 0;
-volatile uint32_t can2_rx_count = 0;
-volatile uint32_t can3_rx_count = 0;
+volatile can_stats_t can_stats = {0};
+
 
 /* --------------- Filter configuration (accept-all, static) --------------- */
 
@@ -121,18 +117,18 @@ void can_driver_rx_isr(CAN_HandleTypeDef* hcan) {
     volatile uint32_t *rx_count;
     uint8_t            bus;
 
-    if (hcan->Instance == CAN1) {
-        q        = &can1_rx_queue;
-        rx_count = &can1_rx_count;
+    if (hcan == &hcan1) {
         bus      = CAN_BUS_1;
-    } else if (hcan->Instance == CAN2) {
-        q        = &can2_rx_queue;
-        rx_count = &can2_rx_count;
+        q        = &can1_rx_queue;
+        rx_count = &can_stats.can1_rx_count;
+    } else if (hcan == &hcan2) {
         bus      = CAN_BUS_2;
-    } else if (hcan->Instance == CAN3) {
-        q        = &can3_rx_queue;
-        rx_count = &can3_rx_count;
+        q        = &can2_rx_queue;
+        rx_count = &can_stats.can2_rx_count;
+    } else if (hcan == &hcan3) {
         bus      = CAN_BUS_3;
+        q        = &can3_rx_queue;
+        rx_count = &can_stats.can3_rx_count;
     } else {
         return;
     }
@@ -166,31 +162,39 @@ void can_driver_tx_poll(void)
         .TransmitGlobalTime = DISABLE,
     };
     uint32_t mailbox;
-
-    /* Try one message from each bus. If mailbox full, leave in queue for next call. */
     can_msg_t msg;
 
-    if (can_queue_pop(&can1_tx_queue, &msg)) {
+    /* Drain can1_tx_queue while there are free mailboxes */
+    while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan1) > 0 && can_queue_pop(&can1_tx_queue, &msg)) {
         header.StdId = msg.id;
         header.DLC   = msg.dlc;
-        if (HAL_CAN_AddTxMessage(&hcan1, &header, msg.data, &mailbox) == HAL_OK)
-            can1_tx_count++;
-        /* else: drop — no re-enqueue */
+        if (HAL_CAN_AddTxMessage(&hcan1, &header, msg.data, &mailbox) == HAL_OK) {
+            can_stats.can1_tx_count++;
+        } else {
+            can_stats.can1_tx_dropped++;
+        }
     }
 
-    if (can_queue_pop(&can2_tx_queue, &msg)) {
+    /* Drain can2_tx_queue while there are free mailboxes */
+    while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan2) > 0 && can_queue_pop(&can2_tx_queue, &msg)) {
         header.StdId = msg.id;
         header.DLC   = msg.dlc;
-        if (HAL_CAN_AddTxMessage(&hcan2, &header, msg.data, &mailbox) == HAL_OK)
-            can2_tx_count++;
-        /* else: drop — no re-enqueue */
+        if (HAL_CAN_AddTxMessage(&hcan2, &header, msg.data, &mailbox) == HAL_OK) {
+            can_stats.can2_tx_count++;
+        } else {
+            can_stats.can2_tx_dropped++;
+        }
     }
 
-    if (can_queue_pop(&can3_tx_queue, &msg)) {
+    /* Drain can3_tx_queue while there are free mailboxes */
+    while (HAL_CAN_GetTxMailboxesFreeLevel(&hcan3) > 0 && can_queue_pop(&can3_tx_queue, &msg)) {
         header.StdId = msg.id;
         header.DLC   = msg.dlc;
-        if (HAL_CAN_AddTxMessage(&hcan3, &header, msg.data, &mailbox) == HAL_OK)
-            can3_tx_count++;
-        /* else: drop — no re-enqueue */
+        if (HAL_CAN_AddTxMessage(&hcan3, &header, msg.data, &mailbox) == HAL_OK) {
+            can_stats.can3_tx_count++;
+        } else {
+            can_stats.can3_tx_dropped++;
+        }
     }
 }
+

@@ -317,7 +317,7 @@ static bool check_error_timeout(uint16_t apps1, uint16_t apps2_adjusted) {
  * information for debugging and monitoring purposes.
  */
 void APPS_PrintStatus(void) {
-    printf(
+    DBG_PRINTF(
         "{"
         "\"APPS1\":%d,"
         "\"APPS2\":%d,"
@@ -369,7 +369,7 @@ void APPS_StartCalibration(void) {
     calib_state.delta_sum = 0;
     calib_state.sample_count = 0;
 
-    printf("APPS Calibration started. Press and release pedal several times over the next 10 seconds...\n");
+    DBG_PRINTF("APPS Calibration started. Press and release pedal several times over the next 10 seconds...\n");
 }
 
 /**
@@ -405,23 +405,23 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
         calib_state.suggested_tolerance = 50;  // Default suggested tolerance
 
         // Print results
-        printf("\nAPPS Calibration Results:\n");
-        printf("APPS1 - Min: %u, Max: %u (Range: %u)\n",
+        DBG_PRINTF("\nAPPS Calibration Results:\n");
+        DBG_PRINTF("APPS1 - Min: %u, Max: %u (Range: %u)\n",
                calib_state.apps1_min, calib_state.apps1_max,
                calib_state.apps1_max - calib_state.apps1_min);
-        printf("APPS2 - Min: %u, Max: %u (Range: %u)\n",
+        DBG_PRINTF("APPS2 - Min: %u, Max: %u (Range: %u)\n",
                calib_state.apps2_min, calib_state.apps2_max,
                calib_state.apps2_max - calib_state.apps2_min);
-        printf("Average Delta between sensors: %d\n", avg_delta);
+        DBG_PRINTF("Average Delta between sensors: %d\n", avg_delta);
 
         // Print calibration recommendations
-        printf("\nRecommended Calibration Values:\n");
-        printf("min_value: %u\n", calib_state.suggested_min);
-        printf("max_value: %u\n", calib_state.suggested_max);
-        printf("delta: %u\n", calib_state.suggested_delta);
-        printf("tolerance: %u (adjust based on sensor stability)\n", calib_state.suggested_tolerance);
+        DBG_PRINTF("\nRecommended Calibration Values:\n");
+        DBG_PRINTF("min_value: %u\n", calib_state.suggested_min);
+        DBG_PRINTF("max_value: %u\n", calib_state.suggested_max);
+        DBG_PRINTF("delta: %u\n", calib_state.suggested_delta);
+        DBG_PRINTF("tolerance: %u (adjust based on sensor stability)\n", calib_state.suggested_tolerance);
 
-        printf("\nUse these values with APPS_Init(min_value, max_value, tolerance, delta)\n");
+        DBG_PRINTF("\nUse these values with APPS_Init(min_value, max_value, tolerance, delta)\n");
 
         calib_state.is_calibrating = false;
         calib_state.is_complete = true;

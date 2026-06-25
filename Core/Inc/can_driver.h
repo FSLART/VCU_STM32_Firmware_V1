@@ -6,15 +6,22 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct {
+    uint32_t can1_tx_count;
+    uint32_t can2_tx_count;
+    uint32_t can3_tx_count;
+    uint32_t can1_rx_count;
+    uint32_t can2_rx_count;
+    uint32_t can3_rx_count;
+    uint32_t can1_tx_dropped;
+    uint32_t can2_tx_dropped;
+    uint32_t can3_tx_dropped;
+} can_stats_t;
+
 /* Debug counters — incremented on each successful hardware TX/RX.
  * Defined in can_driver.c; declare extern here so any module that
  * includes this header can reference them (e.g. for debugger watch). */
-extern volatile uint32_t can1_tx_count;
-extern volatile uint32_t can2_tx_count;
-extern volatile uint32_t can3_tx_count;
-extern volatile uint32_t can1_rx_count;
-extern volatile uint32_t can2_rx_count;
-extern volatile uint32_t can3_rx_count;
+extern volatile can_stats_t can_stats;
 
 /* Initialize filters, activate RX + TX interrupts, start all three CAN buses */
 void can_driver_init(void);
