@@ -198,6 +198,7 @@ extern VCU_Signals_t vcu;
 //Variables
 //APPS Loss of comms tick
 extern volatile uint32_t last_apps_can_rx_time; // keeps track of the last time a valid 0x710 message came through
+extern volatile uint32_t last_acu_can_rx_time;
 extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 
 /**

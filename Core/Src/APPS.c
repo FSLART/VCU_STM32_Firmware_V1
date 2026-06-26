@@ -412,7 +412,7 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
         DBG_PRINTF("APPS2 - Min: %u, Max: %u (Range: %u)\n",
                calib_state.apps2_min, calib_state.apps2_max,
                calib_state.apps2_max - calib_state.apps2_min);
-        DBG_PRINTF("Average Delta between sensors: %d\n", avg_delta);
+        DBG_PRINTF("Average Delta between sensors: %ld\n", avg_delta);
 
         // Print calibration recommendations
         DBG_PRINTF("\nRecommended Calibration Values:\n");

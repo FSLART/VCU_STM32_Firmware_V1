@@ -31,6 +31,7 @@ VCU_Signals_t vcu = {
 //Variables
 //APPS Loss of comms tick
 volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 
 #pragma region Basic CAN Functions
@@ -556,6 +557,7 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
             acu->ignition_ad = acu_msg.ign;
             acu->ASMS = acu_msg.asms;
             acu->is_in_emergency = acu_msg.emergency;
+            last_acu_can_rx_time = HAL_GetTick();
             break;
         }
         case AUTONOMOUS_T26_JETSON_FRAME_ID: {
@@ -806,16 +808,16 @@ void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8
 
 void can_bus_send_vcu_state(void) {
     // Send VCU_state DBC message on CAN2 (via TX queue) 
-    struct powertrain_t26_vcu_state_t state_msg; 
-    powertrain_t26_vcu_state_init(&state_msg); 
+    struct powertrain_t26_vcu_states_t state_msg; 
+    powertrain_t26_vcu_states_init(&state_msg); 
     state_msg.vcu_state = (uint8_t)current_state; 
  
     uint8_t state_data[8]; 
-    int pack_size = powertrain_t26_vcu_state_pack(state_data, &state_msg, sizeof(state_data)); 
+    int pack_size = powertrain_t26_vcu_states_pack(state_data, &state_msg, sizeof(state_data)); 
     if (pack_size >= 0) { 
         can_msg_t state_can_msg = { 
-            .id = POWERTRAIN_T26_VCU_STATE_FRAME_ID, 
-            .dlc = POWERTRAIN_T26_VCU_STATE_LENGTH, 
+            .id = POWERTRAIN_T26_VCU_STATES_FRAME_ID, 
+            .dlc = POWERTRAIN_T26_VCU_STATES_LENGTH, 
             .bus = CAN_BUS_2, 
             .timestamp = HAL_GetTick(), 
         }; 

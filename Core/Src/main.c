@@ -667,11 +667,8 @@ void UpdateState(void) {
     // NO LONGER NEEDED
     debounce_shutdown_signal();  // Update shutdown signal with debounce
     // debounce_ignition_switch();         // Update ignition switch signal with debounce
-    //  Toggle ignition_ad on rising edge (momentary button behavior)
-    if (acu.ignition_ad && !vcu.ignition_ad_prev) {
-        vcu.ignition_ad = !vcu.ignition_ad;
-    }
-    vcu.ignition_ad_prev = acu.ignition_ad;
+    // Map ignition_ad directly from ACU signal
+    vcu.ignition_ad = acu.ignition_ad;
 
     // State transitions
     switch (current_state) {
@@ -1144,6 +1141,10 @@ void execute_10ms_tasks(void) {
         ADC2_APPS[1] = 0;
         // Maybe trigger state emergency??
         // current_state = STATE_AS_EMERGENCY;
+    }
+
+    if ((HAL_GetTick() - last_acu_can_rx_time) > 2000) {
+        acu.ignition_ad = 0; // ACU timeout fail-safe
     }
 
     // MAYBE WE IMPLEMENT, IF THERES TIME (NOTE: CANT KILL IGNITION LIKE THAT!!)
