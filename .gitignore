@@ -17,8 +17,8 @@ _build/
 .metadata/
 
 #Debug
-Debug/
-debug/
+Debug/*
+debug/*
 Release/
 release
 
@@ -69,3 +69,6 @@ release
 .mxproject
 *.launch
 *.cfg
+
+!Debug/*.bin
+!Debug/*.elf
