@@ -84,7 +84,7 @@ void Error_Handler(void);
 
 /* USER CODE BEGIN Private defines */
 #define DEBUG_PRINT
-#define BYPASS_SHUTDOWN
+// #define BYPASS_SHUTDOWN
 
 #ifdef DEBUG_PRINT
 #include <stdio.h>
