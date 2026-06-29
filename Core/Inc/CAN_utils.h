@@ -172,6 +172,8 @@ typedef struct {
     bool ignition_ad;             // ignition coming from autonomous system
     bool ignition_ad_prev;        // Previous state for edge detection
     bool ignition_switch_signal;  // Ignition signal
+    bool ignition_toggle_signal;  // Toggled state for momentary ignition button
+    bool ignition_button_prev;    // Previous state of momentary ignition button
 
     bool precharge_signal;  // Precharge signal
     bool manual;            // Manual mode signal

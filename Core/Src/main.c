@@ -29,8 +29,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1710U
-#define __APPS_MAX_BITS 2690U
+#define __APPS_MIN_BITS 1110U
+#define __APPS_MAX_BITS 1346U
 #define __APPS_TOLERANCE 50U  // tolerancia para o erro
 #define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
 

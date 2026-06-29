@@ -443,13 +443,14 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             powertrain_t26_dash_board_init(&db_msg);
             powertrain_t26_dash_board_unpack(&db_msg, data, msg->dlc);
             
-#ifdef POWERTRAIN_T26_DASH_BOARD_IGNITION_SWITCH_RAW_NAME
-            vcu.ignition_switch_signal = db_msg.ignition_switch_raw;
+            // Process ignition as a momentary button (toggle on rising edge)
+            if (db_msg.ignition_switch_raw && !vcu.ignition_button_prev) {
+                vcu.ignition_toggle_signal = !vcu.ignition_toggle_signal;
+            }
+            vcu.ignition_button_prev = db_msg.ignition_switch_raw;
+            vcu.ignition_switch_signal = vcu.ignition_toggle_signal;
+
             vcu.r2d_button_signal = db_msg.r2d_button_raw;
-#else
-            vcu.ignition_switch_signal = db_msg.ignition;
-            vcu.r2d_button_signal = db_msg.ready_to_drive;
-#endif
             break;
         }
         default:
