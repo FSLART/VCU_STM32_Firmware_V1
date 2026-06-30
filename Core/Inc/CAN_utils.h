@@ -174,10 +174,13 @@ typedef struct {
     bool ignition_switch_signal;  // Ignition signal
     bool ignition_toggle_signal;  // Toggled state for momentary ignition button
     bool ignition_button_prev;    // Previous state of momentary ignition button
+    uint32_t ignition_last_toggle_time; // Timestamp for debounce
 
     bool precharge_signal;  // Precharge signal
     bool manual;            // Manual mode signal
     bool autonomous;        // Autonomous mode signal
+    
+    uint32_t r2d_last_toggle_time; // Timestamp for debounce
 
     bool AS_emergency;
 

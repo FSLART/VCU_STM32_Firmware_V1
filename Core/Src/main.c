@@ -162,8 +162,6 @@ const char* state_names[] = {
     "STATE_READY_AUTONOMOUS",
     "STATE_AS_EMERGENCY"};
 
-
-
 #pragma endregion Global Variables
 
 /* USER CODE END Includes */
@@ -717,7 +715,6 @@ void UpdateState(void) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
-
         case STATE_WAITING_FOR_R2D_MANUAL:
 
             if (!vcu.ignition_switch_signal || !vcu.shutdown_signal) {
@@ -725,15 +722,8 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-                //} else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD)) {
-            } else if ((Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0))) && vcu.r2d_button_signal) {
+            } else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0)))) {
                 current_state = STATE_READY_MANUAL;
-                /*
-                // Handle R2D button debounce
-                //debounce_r2d_button();
-                if (vcu.r2d_toggle_signal) {
-                    current_state = STATE_READY_MANUAL;
-                }*/
             }
             break;
 
@@ -988,8 +978,8 @@ void HandleState(void) {
                 can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);  // INV2 drive enable
                 // finished
                 if (as_system.state == 5) {
-                    can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                  // INV1 ERPM zero
-                    can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                  // INV2 ERPM zero
+                    can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                                                 // INV1 ERPM zero
+                    can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                                                 // INV2 ERPM zero
                     can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM, (uint32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
@@ -1002,15 +992,15 @@ void HandleState(void) {
                     }
 
                     uint32_t erpm = as_system.target_rpm * 10;
-                    can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);               // INV1 ERPM command
-                    can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);               // INV2 ERPM command
+                    can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);                                              // INV1 ERPM command
+                    can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);                                              // INV2 ERPM command
                     can_send_vcu_rpm(&hcan3, (uint32_t)myFSIC1.Actual_ERPM, (uint32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
                     // printf("\n\rRPM: %d\n\r", myFSIC1.Actual_ERPM / 10);
                     // printf("\n\rTarget RPM: %d\n\r", as_system.target_rpm);
                 }
-                
+
                 last_can_send_time_auto = current_time_auto;
             }
             break;
@@ -1144,7 +1134,7 @@ void execute_10ms_tasks(void) {
     }
 
     if ((HAL_GetTick() - last_acu_can_rx_time) > 2000) {
-        acu.ignition_ad = 0; // ACU timeout fail-safe
+        acu.ignition_ad = 0;  // ACU timeout fail-safe
     }
 
     // MAYBE WE IMPLEMENT, IF THERES TIME (NOTE: CANT KILL IGNITION LIKE THAT!!)
@@ -1164,7 +1154,7 @@ void execute_10ms_tasks(void) {
 
         // Send VCU_state DBC message on CAN2 (via TX queue)
         can_bus_send_vcu_state();
-        
+
         last_telemetry_send_time = current_telemetry_time;
     }
 
@@ -1265,8 +1255,6 @@ void process_can_rx_queues(void) {
 void execute_immediate_tasks(void) {
     // Heartbeat LED indicator
     heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
-
-
 
     // Update state machine
     UpdateState();
@@ -1406,7 +1394,6 @@ int main(void) {
             execute_100ms_tasks();
             previous_tick_100ms = current_tick;
         }
-
     }
     /* USER CODE END 3 */
 }

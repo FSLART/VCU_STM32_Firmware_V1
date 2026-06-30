@@ -442,15 +442,27 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             struct powertrain_t26_dash_board_t db_msg;
             powertrain_t26_dash_board_init(&db_msg);
             powertrain_t26_dash_board_unpack(&db_msg, data, msg->dlc);
-            
-            // Process ignition as a momentary button (toggle on rising edge)
-            if (db_msg.ignition_switch_raw && !vcu.ignition_button_prev) {
-                vcu.ignition_toggle_signal = !vcu.ignition_toggle_signal;
+            uint32_t current_time = HAL_GetTick();
+
+            // Process ignition as a momentary button with 50ms debounce (toggle on falling edge / button release)
+            if (db_msg.ignition_switch_raw != vcu.ignition_button_prev && (current_time - vcu.ignition_last_toggle_time > 50)) {
+                if (!db_msg.ignition_switch_raw) {
+                    vcu.ignition_toggle_signal = !vcu.ignition_toggle_signal;
+                }
+                vcu.ignition_button_prev = db_msg.ignition_switch_raw;
+                vcu.ignition_last_toggle_time = current_time;
             }
-            vcu.ignition_button_prev = db_msg.ignition_switch_raw;
             vcu.ignition_switch_signal = vcu.ignition_toggle_signal;
 
-            vcu.r2d_button_signal = db_msg.r2d_button_raw;
+            // Process r2d as a momentary button with 50ms debounce (toggle on falling edge / button release)
+            if (db_msg.r2d_button_raw != vcu.r2d_button_prev && (current_time - vcu.r2d_last_toggle_time > 50)) {
+                if (!db_msg.r2d_button_raw) {
+                    vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
+                }
+                vcu.r2d_button_prev = db_msg.r2d_button_raw;
+                vcu.r2d_last_toggle_time = current_time;
+            }
+            vcu.r2d_button_signal = vcu.r2d_toggle_signal;
             
             break;
         }
