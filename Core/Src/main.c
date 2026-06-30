@@ -29,9 +29,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1110U
-#define __APPS_MAX_BITS 1346U
-#define __APPS_TOLERANCE 50U  // tolerancia para o erro
+#define __APPS_MIN_BITS 2210U
+#define __APPS_MAX_BITS 2683U
+#define __APPS_TOLERANCE 90U  // tolerancia para o erro
 #define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
@@ -1164,9 +1164,9 @@ void execute_10ms_tasks(void) {
         bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
         if (calibration_complete) {
             // Optionally, automatically apply the calibration
-            uint16_t min, max, tolerance, delta;
-            APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
-            APPS_Init(min, max, tolerance, delta);
+            uint16_t min, max, tolerance;
+            APPS_GetCalibrationValues(&min, &max, &tolerance);
+            APPS_Init(min, max, tolerance);
         }
     }
 #endif
@@ -1355,7 +1355,7 @@ int main(void) {
     // HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
     //  Calibrate APPS
 
-    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
+    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE);  // Initialize APPS
     bspd_init(&bspd_state);
     res.signal = RES_SIGNAl_DEFAULT_1;  // start with a value different than 0 to avoid emergency state
     DBG_PRINTF("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");

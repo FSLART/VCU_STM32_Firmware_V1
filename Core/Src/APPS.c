@@ -41,14 +41,12 @@ static struct {
     // Configuration parameters
     uint16_t min_value;  // Minimum ADC value (0% throttle)
     uint16_t max_value;  // Maximum ADC value (100% throttle)
-    uint16_t tolerance;  // Tolerance in ADC bits for error detection
-    uint16_t delta;      // Offset between APPS1 and APPS2 sensors
+    uint16_t tolerance;  // Tolerance in ADC bits sensors
 
     // Current sensor values and calculations
     uint16_t apps1_raw;         // Raw APPS1 value from ADC
     uint16_t apps2_raw;         // Raw APPS2 value from ADC
-    uint16_t delta_real_time;   // Real-time calculated delta between sensors
-    uint16_t apps2_adjusted;    // APPS2 with delta adjustment applied
+    uint16_t apps2_adjusted;    // APPS2 proportionally adjusted
     uint16_t mean;              // Mean of both sensor values (used for throttle calculation)
     uint16_t percentage;        // Throttle percentage (0-100)
     uint16_t percentage_1000;   // Higher resolution throttle percentage (0-999)
@@ -73,11 +71,9 @@ static struct {
     uint16_t apps1_max;            // Max value of APPS1 observed during calibration
     uint16_t apps2_min;            // Min value of APPS2 observed during calibration
     uint16_t apps2_max;            // Max value of APPS2 observed during calibration
-    int32_t delta_sum;             // Sum of deltas for average calculation
     uint16_t sample_count;         // Number of samples collected during calibration
     uint16_t suggested_min;        // Suggested min value for calibration
     uint16_t suggested_max;        // Suggested max value for calibration
-    uint16_t suggested_delta;      // Suggested delta for calibration
     uint16_t suggested_tolerance;  // Suggested tolerance for calibration
 } calib_state = {0};
 
@@ -109,14 +105,12 @@ static inline void calculate_functional_range(void) {
  * @param min_value Minimum ADC value (0% throttle position)
  * @param max_value Maximum ADC value (100% throttle position)
  * @param tolerance Tolerance in ADC bits for error detection
- * @param delta Offset between APPS1 and APPS2 sensors
  */
-void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance, uint16_t delta) {
+void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
     // Store configuration
     apps_state.min_value = min_value;
     apps_state.max_value = max_value;
     apps_state.tolerance = tolerance;
-    apps_state.delta = delta;
 
     // Calculate functional range based on configuration
     calculate_functional_range();
@@ -152,11 +146,8 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     apps_state.apps1_raw = apps1;
     apps_state.apps2_raw = apps2;
 
-    // Apply delta adjustment to APPS2
-    apps_state.apps2_adjusted = (apps2 > apps_state.delta) ? (apps2 - apps_state.delta) : 0;
-
-    // Calculate real-time delta for debugging/calibration
-    apps_state.delta_real_time = apps_state.apps2_adjusted - apps1;
+    // Apply proportional adjustment to APPS2 (APPS2 is 2x APPS1)
+    apps_state.apps2_adjusted = apps2 >> 1;
 
     // Check for errors with timeout
     if (check_error_timeout(apps1, apps_state.apps2_adjusted)) {
@@ -322,7 +313,6 @@ void APPS_PrintStatus(void) {
         "\"APPS1\":%d,"
         "\"APPS2\":%d,"
         "\"APPS2_Adjusted\":%d,"
-        "\"APPS_Delta_Real_Time\":%d,"
         "\"APPS_Mean\":%d,"
         "\"APPS_Percentage\":%d,"
         "\"APPS_Percentage_mil\":%d,"
@@ -331,13 +321,11 @@ void APPS_PrintStatus(void) {
         "\"APPS_Min\":%d,"
         "\"APPS_Max\":%d,"
         "\"APPS_Tolerance\":%d,"
-        "\"APPS_Delta\":%d,"
         "\"APPS_Functional_Range\":%d"
         "}\n\r",
         apps_state.apps1_raw,
         apps_state.apps2_raw,
         apps_state.apps2_adjusted,
-        apps_state.delta_real_time,
         apps_state.mean,
         apps_state.percentage,
         apps_state.percentage_1000,
@@ -346,7 +334,6 @@ void APPS_PrintStatus(void) {
         apps_state.min_value,
         apps_state.max_value,
         apps_state.tolerance,
-        apps_state.delta,
         apps_state.functional_range);
 }
 
@@ -366,7 +353,6 @@ void APPS_StartCalibration(void) {
     calib_state.apps1_max = 0;
     calib_state.apps2_min = UINT16_MAX;
     calib_state.apps2_max = 0;
-    calib_state.delta_sum = 0;
     calib_state.sample_count = 0;
 
     DBG_PRINTF("APPS Calibration started. Press and release pedal several times over the next 10 seconds...\n");
@@ -392,13 +378,6 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
 
     // Check if calibration period is over
     if (current_time - calib_state.start_time >= 10000) {  // 10 seconds
-        // Finalize calibration
-        // Calculate average delta
-        int32_t avg_delta = (calib_state.sample_count > 0) ? (calib_state.delta_sum / calib_state.sample_count) : 0;
-
-        // Ensure delta is positive (as expected by the code)
-        calib_state.suggested_delta = (avg_delta > 0) ? (uint16_t)avg_delta : 0;
-
         // Calculate suggested values
         calib_state.suggested_min = calib_state.apps1_min;
         calib_state.suggested_max = calib_state.apps1_max;
@@ -412,16 +391,14 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
         DBG_PRINTF("APPS2 - Min: %u, Max: %u (Range: %u)\n",
                calib_state.apps2_min, calib_state.apps2_max,
                calib_state.apps2_max - calib_state.apps2_min);
-        DBG_PRINTF("Average Delta between sensors: %ld\n", avg_delta);
 
         // Print calibration recommendations
         DBG_PRINTF("\nRecommended Calibration Values:\n");
         DBG_PRINTF("min_value: %u\n", calib_state.suggested_min);
         DBG_PRINTF("max_value: %u\n", calib_state.suggested_max);
-        DBG_PRINTF("delta: %u\n", calib_state.suggested_delta);
         DBG_PRINTF("tolerance: %u (adjust based on sensor stability)\n", calib_state.suggested_tolerance);
 
-        DBG_PRINTF("\nUse these values with APPS_Init(min_value, max_value, tolerance, delta)\n");
+        DBG_PRINTF("\nUse these values with APPS_Init(min_value, max_value, tolerance)\n");
 
         calib_state.is_calibrating = false;
         calib_state.is_complete = true;
@@ -437,9 +414,6 @@ bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
     if (apps2 < calib_state.apps2_min && apps2 > APPS_MIN_VALID_VALUE) calib_state.apps2_min = apps2;
     if (apps2 > calib_state.apps2_max && apps2 < APPS_MAX_VALID_VALUE) calib_state.apps2_max = apps2;
 
-    // Calculate instantaneous delta (APPS2 - APPS1)
-    int32_t current_delta = (int32_t)apps2 - (int32_t)apps1;
-    calib_state.delta_sum += current_delta;
     calib_state.sample_count++;
 
     return false;
@@ -460,11 +434,10 @@ bool APPS_IsCalibrating(void) {
  * @param min_value Pointer to store suggested min value
  * @param max_value Pointer to store suggested max value
  * @param tolerance Pointer to store suggested tolerance
- * @param delta Pointer to store suggested delta
  * @return true if values are valid (calibration complete), false otherwise
  */
 bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
-                               uint16_t* tolerance, uint16_t* delta) {
+                               uint16_t* tolerance) {
     if (!calib_state.is_complete) {
         return false;
     }
@@ -472,7 +445,6 @@ bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
     if (min_value) *min_value = calib_state.suggested_min;
     if (max_value) *max_value = calib_state.suggested_max;
     if (tolerance) *tolerance = calib_state.suggested_tolerance;
-    if (delta) *delta = calib_state.suggested_delta;
 
     return true;
 }

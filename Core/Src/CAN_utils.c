@@ -427,11 +427,11 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             
             __disable_irq(); // Lock interrupts so this update doesn't happen while MovingAverage_Update() is trying to read it
 #ifdef POWERTRAIN_T26_APPS_ADC_RAW_APPS1_RAW_NAME
-            ADC2_APPS[0] = (uint16_t)apps_msg.apps1_raw;
-            ADC2_APPS[1] = (uint16_t)apps_msg.apps2_raw;
+            ADC2_APPS[0] = (uint16_t)apps_msg.apps1_raw / 10;
+            ADC2_APPS[1] = (uint16_t)apps_msg.apps2_raw / 10;
 #else
-            ADC2_APPS[0] = (uint16_t)apps_msg.apps1;
-            ADC2_APPS[1] = (uint16_t)apps_msg.apps2;
+            ADC2_APPS[0] = (uint16_t)apps_msg.apps1 / 10;
+            ADC2_APPS[1] = (uint16_t)apps_msg.apps2 / 10;
 #endif
             __enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 

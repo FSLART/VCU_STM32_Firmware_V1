@@ -34,11 +34,10 @@ typedef struct {
     uint16_t min_value;  // ADC value at 0% throttle
     uint16_t max_value;  // ADC value at 100% throttle
     uint16_t tolerance;  // Tolerance in ADC bits
-    uint16_t delta;      // Offset between APPS1 and APPS2
 } APPS_Config_t;
 
 // Core functions
-void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance, uint16_t delta);
+void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance);
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);
 APPS_ErrorType_t APPS_GetErrorType(uint16_t apps1, uint16_t apps2);
 void APPS_PrintStatus(void);
@@ -74,10 +73,9 @@ bool APPS_IsCalibrating(void);
  * @param min_value Pointer to store suggested min value
  * @param max_value Pointer to store suggested max value
  * @param tolerance Pointer to store suggested tolerance
- * @param delta Pointer to store suggested delta
  * @return true if values are valid (calibration complete), false otherwise
  */
 bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
-                               uint16_t* tolerance, uint16_t* delta);
+                               uint16_t* tolerance);
 
 #endif /* APPS_H */
