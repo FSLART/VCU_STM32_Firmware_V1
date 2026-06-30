@@ -56,7 +56,7 @@
 #define CAN_AUTONOMOUS &hcan3
 
 /* BYPASS VARIABLES*/
-#define Bypass_brake_pressure 1
+#define Bypass_brake_pressure 0
 #define Bypass_precharge 0
 
 #define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D

@@ -23,8 +23,9 @@ static void CAN1_Filter_Config(void) {
         .FilterScale = CAN_FILTERSCALE_32BIT,
         .SlaveStartFilterBank = 14, /* CAN1 gets banks 0–13, CAN2 gets 14–27 */
     };
-    if (HAL_CAN_ConfigFilter(&hcan1, &f) != HAL_OK)
-        Error_Handler();
+    if (HAL_CAN_ConfigFilter(&hcan1, &f) != HAL_OK) {
+        /* Error_Handler(); */
+    }
 }
 
 static void CAN2_Filter_Config(void) {
@@ -40,8 +41,9 @@ static void CAN2_Filter_Config(void) {
         .FilterScale = CAN_FILTERSCALE_32BIT,
         .SlaveStartFilterBank = 14, /* Same split boundary — CAN2 must know where its banks start */
     };
-    if (HAL_CAN_ConfigFilter(&hcan2, &f) != HAL_OK)
-        Error_Handler();
+    if (HAL_CAN_ConfigFilter(&hcan2, &f) != HAL_OK) {
+        /* Error_Handler(); */
+    }
 }
 
 static void CAN3_Filter_Config(void) {
@@ -56,8 +58,9 @@ static void CAN3_Filter_Config(void) {
         .FilterMode = CAN_FILTERMODE_IDMASK,
         .FilterScale = CAN_FILTERSCALE_32BIT,
     };
-    if (HAL_CAN_ConfigFilter(&hcan3, &f) != HAL_OK)
-        Error_Handler();
+    if (HAL_CAN_ConfigFilter(&hcan3, &f) != HAL_OK) {
+        /* Error_Handler(); */
+    }
 }
 
 /* --------------- Public API --------------- */
@@ -76,14 +79,14 @@ void can_driver_init(void) {
     HAL_NVIC_EnableIRQ(CAN3_RX0_IRQn);
 
     /* Start CAN buses BEFORE activating notifications (HAL recommended order) */
-    if (HAL_CAN_Start(&hcan1) != HAL_OK) Error_Handler();
-    if (HAL_CAN_Start(&hcan2) != HAL_OK) Error_Handler();
-    if (HAL_CAN_Start(&hcan3) != HAL_OK) Error_Handler();
+    if (HAL_CAN_Start(&hcan1) != HAL_OK) /* Error_Handler(); */ ;
+    if (HAL_CAN_Start(&hcan2) != HAL_OK) /* Error_Handler(); */ ;
+    if (HAL_CAN_Start(&hcan3) != HAL_OK) /* Error_Handler(); */ ;
 
     /* Activate RX FIFO0 message pending notifications */
-    if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) Error_Handler();
-    if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) Error_Handler();
-    if (HAL_CAN_ActivateNotification(&hcan3, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) Error_Handler();
+    if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) /* Error_Handler(); */ ;
+    if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) /* Error_Handler(); */ ;
+    if (HAL_CAN_ActivateNotification(&hcan3, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) /* Error_Handler(); */ ;
 }
 
 bool can_driver_tx(CAN_HandleTypeDef* hcan, uint32_t std_id, const uint8_t* data, uint8_t len) {

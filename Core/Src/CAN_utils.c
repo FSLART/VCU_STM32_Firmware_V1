@@ -451,6 +451,7 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             vcu.ignition_switch_signal = vcu.ignition_toggle_signal;
 
             vcu.r2d_button_signal = db_msg.r2d_button_raw;
+            
             break;
         }
         default:
