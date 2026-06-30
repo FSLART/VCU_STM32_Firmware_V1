@@ -32,6 +32,8 @@
 #define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
 #define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
+#define APPS_SINGLE_SENSOR_TEST 1     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
+
 /* ---------------------- Module State ---------------------- */
 /**
  * Combined APPS module state containing configuration, current readings,
@@ -149,7 +151,22 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     // Apply proportional adjustment to APPS2 (APPS2 is 2x APPS1)
     apps_state.apps2_adjusted = apps2 >> 1;
 
-    // Check for errors with timeout
+#if APPS_SINGLE_SENSOR_TEST
+    // TEST MODE: Ignore errors and APPS2, use APPS1 directly
+    apps_state.mean = apps1;
+    
+    // Safety check: STILL detect short to VCC or GND!
+    if (apps1 < APPS_MIN_VALID_VALUE || apps1 > APPS_MAX_VALID_VALUE) {
+        apps_state.percentage = 0;
+        apps_state.percentage_1000 = 0;
+        apps_state.mean = 0;
+        result.error = true;
+        result.error_type = APPS_ERROR_SHORT_CIRCUIT;
+    }
+    
+    if (!result.error) {
+#else
+    // NORMAL MODE: Check for errors with timeout
     if (check_error_timeout(apps1, apps_state.apps2_adjusted)) {
         // Error condition - zero throttle
         apps_state.percentage = 0;
@@ -161,6 +178,7 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         // No error - calculate throttle position
         // Use bit shift for division by 2 (faster than division)
         apps_state.mean = (apps1 + apps_state.apps2_adjusted) >> 1;
+#endif
 
         // Precalculate thresholds once
         uint16_t min_threshold = apps_state.min_value + apps_state.tolerance;
