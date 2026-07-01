@@ -153,10 +153,10 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
 
 #if APPS_SINGLE_SENSOR_TEST
     // TEST MODE: Ignore errors and APPS2, use APPS1 directly
-    apps_state.mean = apps1;
+    apps_state.mean = apps2;
     
     // Safety check: STILL detect short to VCC or GND!
-    if (apps1 < APPS_MIN_VALID_VALUE || apps1 > APPS_MAX_VALID_VALUE) {
+    if (apps2 < APPS_MIN_VALID_VALUE || apps2 > APPS_MAX_VALID_VALUE) {
         apps_state.percentage = 0;
         apps_state.percentage_1000 = 0;
         apps_state.mean = 0;

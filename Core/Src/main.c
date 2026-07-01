@@ -1336,6 +1336,7 @@ int main(void) {
     MX_USART3_UART_Init();
     MX_TIM2_Init();
     /* USER CODE BEGIN 2 */
+    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE);  // Initialize APPS
     HAL_TIM_Base_Start_IT(&htim2);
 
     can_driver_init();
@@ -1351,11 +1352,11 @@ int main(void) {
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
 
+
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC1_VAL, 4);
     // HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
     //  Calibrate APPS
 
-    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE);  // Initialize APPS
     bspd_init(&bspd_state);
     res.signal = RES_SIGNAl_DEFAULT_1;  // start with a value different than 0 to avoid emergency state
     DBG_PRINTF("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
