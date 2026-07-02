@@ -33,6 +33,7 @@ VCU_Signals_t vcu = {
 volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
 volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
+volatile uint8_t debug_res_signal = 0;
 
 #pragma region Basic CAN Functions
 
@@ -561,56 +562,70 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  */
 void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
     const uint8_t *data = msg->data;
-    uint8_t dlc_bits = msg->dlc * 8;
     switch (msg->id) {
         case AUTONOMOUS_T26_ACU_FRAME_ID: {
             struct autonomous_t26_acu_t acu_msg;
             autonomous_t26_acu_init(&acu_msg);
-            autonomous_t26_acu_unpack(&acu_msg, data, dlc_bits);
-            acu->mission_select = acu_msg.mission_select;
-            acu->ignition_ad = acu_msg.ign;
-            acu->ASMS = acu_msg.asms;
-            acu->is_in_emergency = acu_msg.emergency;
-            last_acu_can_rx_time = HAL_GetTick();
+            if (autonomous_t26_acu_unpack(&acu_msg, data, msg->dlc) == 0) {
+                acu->mission_select = acu_msg.mission_select;
+                acu->ignition_ad = acu_msg.ign;
+                acu->ASMS = acu_msg.asms;
+                acu->is_in_emergency = acu_msg.emergency;
+                last_acu_can_rx_time = HAL_GetTick();
+            }
             break;
         }
         case AUTONOMOUS_T26_JETSON_FRAME_ID: {
             struct autonomous_t26_jetson_t jetson;
             autonomous_t26_jetson_init(&jetson);
-            autonomous_t26_jetson_unpack(&jetson, data, dlc_bits);
-            as_system->mission_select = jetson.as_mission;
+            if (autonomous_t26_jetson_unpack(&jetson, data, msg->dlc) == 0) {
+                as_system->mission_select = jetson.as_mission;
+            }
             break;
         }
-        case AUTONOMOUS_T26_RES_FRAME_ID: {
+        case (0x181u): {
+        //case AUTONOMOUS_T26_RES_FRAME_ID: {
+            /* 
             struct autonomous_t26_res_t res_ad;
             autonomous_t26_res_init(&res_ad);
-            autonomous_t26_res_unpack(&res_ad, data, dlc_bits);
-            res->signal = res_ad.signal;
+            if (autonomous_t26_res_unpack(&res_ad, data, msg->dlc) == 0) {
+                res->signal = res_ad.signal;
+            }
+            */
+            
+            // Manual Decode
+            if (msg->dlc >= 1) {
+                res->signal = data[0];
+                debug_res_signal = data[0];
+            }
             break;
         }
         case AUTONOMOUS_T26_VCU_RPM_TARGET_FRAME_ID: {
             struct autonomous_t26_vcu_rpm_target_t target_rpm;
             autonomous_t26_vcu_rpm_target_init(&target_rpm);
-            autonomous_t26_vcu_rpm_target_unpack(&target_rpm, data, dlc_bits);
-            as_system->target_rpm = target_rpm.rpm_target;
-            as_system->control_mode = AS_CONTROL_MODE_RPM;
-            as_system->last_control_cmd_ms = HAL_GetTick();
+            if (autonomous_t26_vcu_rpm_target_unpack(&target_rpm, data, msg->dlc) == 0) {
+                as_system->target_rpm = target_rpm.rpm_target;
+                as_system->control_mode = AS_CONTROL_MODE_RPM;
+                as_system->last_control_cmd_ms = HAL_GetTick();
+            }
             break;
         }
         case AUTONOMOUS_T26_VCU_TORQUE_TARGET_FRAME_ID: {
             struct autonomous_t26_vcu_torque_target_t target_torque;
             autonomous_t26_vcu_torque_target_init(&target_torque);
-            autonomous_t26_vcu_torque_target_unpack(&target_torque, data, dlc_bits);
-            as_system->target_torque = target_torque.torque_target;
-            as_system->control_mode = AS_CONTROL_MODE_TORQUE;
-            as_system->last_control_cmd_ms = HAL_GetTick();
+            if (autonomous_t26_vcu_torque_target_unpack(&target_torque, data, msg->dlc) == 0) {
+                as_system->target_torque = target_torque.torque_target;
+                as_system->control_mode = AS_CONTROL_MODE_TORQUE;
+                as_system->last_control_cmd_ms = HAL_GetTick();
+            }
             break;
         }
         case AUTONOMOUS_T26_DV_STATUS_FRAME_ID: {
             struct autonomous_t26_dv_status_t as_state;
             autonomous_t26_dv_status_init(&as_state);
-            autonomous_t26_dv_status_unpack(&as_state, data, dlc_bits);
-            as_system->state = as_state.as_status;
+            if (autonomous_t26_dv_status_unpack(&as_state, data, msg->dlc) == 0) {
+                as_system->state = as_state.as_status;
+            }
             break;
         }
         case BRAKE_PRESSURE_ID: {

@@ -658,7 +658,8 @@ void UpdateState(void) {
     previous_state = current_state;
 
     // Process emergency condition with highest priority
-    if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
+    //if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
+    if ((acu.is_in_emergency == 1) || (as_system.state == 4) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
     }
 
@@ -1133,9 +1134,9 @@ void execute_10ms_tasks(void) {
         // current_state = STATE_AS_EMERGENCY;
     }
 
-    if ((HAL_GetTick() - last_acu_can_rx_time) > 2000) {
-        acu.ignition_ad = 0;  // ACU timeout fail-safe
-    }
+    // if ((HAL_GetTick() - last_acu_can_rx_time) > 2000) {
+    //     acu.ignition_ad = 0;  // ACU timeout fail-safe
+    // }
 
     // MAYBE WE IMPLEMENT, IF THERES TIME (NOTE: CANT KILL IGNITION LIKE THAT!!)
     /*if ((HAL_GetTick() - last_r2d_ign_can_rx_time) > MAX_R2D_IGN_TIMEOUT_MS) {
