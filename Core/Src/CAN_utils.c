@@ -241,6 +241,12 @@ void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeD
 */
 
 void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, FSIC_t* fsic2, IVT_t* ivt) {
+    /* Powertrain DBC IDs are all 11-bit standard. Reject extended frames
+       for the same reason as decode_autonomous_bus — see comment there. */
+    if (msg->is_extended) {
+        return;
+    }
+
     const uint8_t *data = msg->data;
 
     switch (msg->id) {
@@ -561,6 +567,15 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
 void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
+    /* Every frame ID in the autonomous DBC is an 11-bit standard ID. An
+       extended (29-bit) frame is either foreign traffic or a corrupted
+       capture, and msg->id for it must NOT be compared against the
+       standard-ID defines below (id-space overlap would decode it as the
+       wrong signal with the wrong payload). Drop it before the switch. */
+    if (msg->is_extended) {
+        return;
+    }
+
     const uint8_t *data = msg->data;
     switch (msg->id) {
         case AUTONOMOUS_T26_ACU_FRAME_ID: {
