@@ -29,9 +29,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 2210U
-#define __APPS_MAX_BITS 2683U
-#define __APPS_TOLERANCE 90U  // tolerancia para o erro
+#define __APPS_MIN_BITS 1118U   // APPS1 ADC @ 0% throttle (measured)
+#define __APPS_MAX_BITS 1349U   // APPS1 ADC @ 100% throttle (measured)
+#define __APPS_TOLERANCE 20U    // ~9% of range (231 bits), covers sensor noise
 #define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
