@@ -29,10 +29,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1118U   // APPS1 ADC @ 0% throttle (measured)
-#define __APPS_MAX_BITS 1349U   // APPS1 ADC @ 100% throttle (measured)
-#define __APPS_TOLERANCE 20U    // ~9% of range (231 bits), covers sensor noise
-#define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
+#define __APPS_MIN_BITS 1118U  // APPS1 ADC @ 0% throttle (measured)
+#define __APPS_MAX_BITS 1349U  // APPS1 ADC @ 100% throttle (measured)
+#define __APPS_TOLERANCE 20U   // ~9% of range (231 bits), covers sensor noise
+#define __APPS_DELTA 339U      // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
@@ -658,8 +658,8 @@ void UpdateState(void) {
     previous_state = current_state;
 
     // Process emergency condition with highest priority
-    //if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
-    if ((acu.is_in_emergency == 1) || (as_system.state == 4) && current_state != STATE_AS_EMERGENCY) {
+    if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
+        // if ((acu.is_in_emergency == 1) || (as_system.state == 4) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
     }
 
@@ -979,8 +979,8 @@ void HandleState(void) {
                 can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);  // INV2 drive enable
                 // finished
                 if (as_system.state == 5) {
-                    can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                                                 // INV1 ERPM zero
-                    can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                                                 // INV2 ERPM zero
+                    can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                                               // INV1 ERPM zero
+                    can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                                               // INV2 ERPM zero
                     can_send_vcu_rpm(&hcan3, (int32_t)myFSIC1.Actual_ERPM, (int32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
@@ -993,8 +993,8 @@ void HandleState(void) {
                     }
 
                     int32_t erpm = (int32_t)as_system.target_rpm * MOTOR_POLE_PAIRS;
-                    can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);                                              // INV1 ERPM command
-                    can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);                                              // INV2 ERPM command
+                    can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);                                            // INV1 ERPM command
+                    can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);                                            // INV2 ERPM command
                     can_send_vcu_rpm(&hcan3, (int32_t)myFSIC1.Actual_ERPM, (int32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
                     can_bus_send_bms_close_contactors(1, &hcan2);
 
@@ -1352,7 +1352,6 @@ int main(void) {
 
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
-
 
     HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC1_VAL, 4);
     // HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
