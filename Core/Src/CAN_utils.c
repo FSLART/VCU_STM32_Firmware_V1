@@ -318,6 +318,16 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             fsic1->Actual_TempController = m.inv1_actual_temp_controller;
             fsic1->Actual_TempMotor = m.inv1_actual_temp_motor;
             fsic1->Actual_FaultCode = m.inv1_actual_fault_code;
+            
+            /* Forward to Data bus via queue */
+            can_msg_t tx_msg1;
+            tx_msg1.id = FSIC_INV1_TEMPERATURES_FRAME_ID;
+            tx_msg1.dlc = msg->dlc;
+            tx_msg1.bus = CAN_BUS_1;
+            tx_msg1.is_extended = 0;
+            tx_msg1.timestamp = HAL_GetTick();
+            memcpy(tx_msg1.data, data, msg->dlc);
+            can_tx_enqueue(&tx_msg1);
             break;
         }
 
@@ -329,6 +339,16 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             fsic2->Actual_TempController = m.inv2_actual_temp_controller;
             fsic2->Actual_TempMotor = m.inv2_actual_temp_motor;
             fsic2->Actual_FaultCode = m.inv2_actual_fault_code;
+            
+            /* Forward to Data bus via queue */
+            can_msg_t tx_msg2;
+            tx_msg2.id = FSIC_INV2_TEMPERATURES_FRAME_ID;
+            tx_msg2.dlc = msg->dlc;
+            tx_msg2.bus = CAN_BUS_1;
+            tx_msg2.is_extended = 0;
+            tx_msg2.timestamp = HAL_GetTick();
+            memcpy(tx_msg2.data, data, msg->dlc);
+            can_tx_enqueue(&tx_msg2);
             break;
         }
 
