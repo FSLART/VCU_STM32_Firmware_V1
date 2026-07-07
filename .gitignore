@@ -17,8 +17,8 @@ _build/
 .metadata/
 
 #Debug
-Debug/
-debug/
+Debug/*
+debug/*
 Release/
 release
 
@@ -62,3 +62,13 @@ release
 *.su
 *.idb
 *.pdb
+
+# STM32CubeIDE project files (machine-specific paths inside)
+.cproject
+.project
+.mxproject
+*.launch
+*.cfg
+
+!Debug/*.bin
+!Debug/*.elf

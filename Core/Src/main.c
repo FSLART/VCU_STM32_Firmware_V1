@@ -29,14 +29,20 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1710U
-#define __APPS_MAX_BITS 2690U
-#define __APPS_TOLERANCE 50U  // tolerancia para o erro
-#define __APPS_DELTA 339U     // usado para normalizar o valor do APPS
+#define __APPS_MIN_BITS 1118U  // APPS1 ADC @ 0% throttle (measured)
+#define __APPS_MAX_BITS 1349U  // APPS1 ADC @ 100% throttle (measured)
+#define __APPS_TOLERANCE 20U   // ~9% of range (231 bits), covers sensor noise
+#define __APPS_DELTA 339U      // usado para normalizar o valor do APPS
 
 #define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
 
 #define CALIBRATE_APPS 0
+
+/*----CAN SAFETY TIMEOUTS----*/
+#define MAX_APPS_TIMEOUT_MS 50  // TIMEOUT for APPS loss of communication
+// UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
+// #define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
+/*---------------------------*/
 
 #define DIGI_BSPD_ENABLE 1    // Enable digital BSPD
 #define PAU_CONTROL_ENABLE 0  // Enable power adjust utility (PAU) control
@@ -61,6 +67,7 @@
 #define MAX_RPM_AD 1800  // 44.17 km/h
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
+
 #pragma region Includes
 /* -------------------- STANDARD INCLUDES -------------------- */
 #include <stdbool.h>
@@ -69,12 +76,15 @@
 #include <stm32f767xx.h>
 #include <stm32f7xx_hal_can.h>
 #include <stm32f7xx_hal_cortex.h>
+#include <string.h>
 
 /* -------------------- PROJECT INCLUDES -------------------- */
 #include "../Inc/proportional_integral_controller.h"
 #include "APPS.h"
 #include "CAN_utils.h"
 #include "bspd.h"
+#include "can_driver.h"
+#include "can_queue.h"
 #include "pau_control.h"
 
 #pragma endregion Includes
@@ -82,7 +92,7 @@
 #pragma region Global Variables
 // ADC buffers
 __attribute__((section(".adcarray"))) uint16_t ADC1_VAL[4];
-__attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
+//__attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 
 // APPS moving average variables
 uint16_t apps1_buffer[APPS_MA_WINDOW_SIZE];
@@ -90,6 +100,9 @@ uint16_t apps2_buffer[APPS_MA_WINDOW_SIZE];
 uint8_t apps_buffer_pos = 0;
 uint16_t apps1_avg = 0;
 uint16_t apps2_avg = 0;
+
+// UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
+// volatile uint32_t last_r2d_ign_can_rx_time = 0; //keeps track of the last time a valid 0x740 message came through
 
 int value = 0;
 
@@ -124,7 +137,8 @@ bspd_state_t bspd_state;
 uint16_t apps_bspd_pau = 0;
 
 // vars on can utils file
-volatile HV500 myHV500;
+volatile FSIC_t myFSIC1;  // Rear-left inverter
+volatile FSIC_t myFSIC2;  // Rear-right inverter
 volatile AS_System_t as_system;
 volatile ACU_t acu;
 volatile RES_t res;
@@ -132,25 +146,12 @@ volatile BMSvars_t bms;
 volatile IVT_t ivt;
 
 /* -------------------- STATE MACHINE DEFINITIONS -------------------- */
-// VCU state enumeration
-typedef enum {
-    STATE_INIT,                    // Initial startup state
-    STATE_SHUTDOWN,                // Shutdown state
-    STATE_STANDBY,                 // Ignition off
-    STATE_PRECHARGE,               // Ignition on, precharging
-    STATE_WAITING_FOR_R2D_MANUAL,  // Waiting for manual R2D signal
-    STATE_WAITING_FOR_R2D_AUTO,    // Waiting for autonomous R2D signal
-    STATE_READY_MANUAL,            // Ready to drive in manual mode
-    STATE_READY_AUTONOMOUS,        // Ready to drive in autonomous mode
-    STATE_AS_EMERGENCY             // Emergency condition detected
-} VCU_STATE_t;
-
 // State machine variables
 VCU_STATE_t current_state = STATE_INIT;   // Current state of the VCU
 VCU_STATE_t previous_state = STATE_INIT;  // Previous state of the VCU
 
 // State names for debug output
-const char *state_names[] = {
+const char* state_names[] = {
     "STATE_INIT",
     "STATE_SHUTDOWN",
     "STATE_STANDBY",
@@ -160,52 +161,6 @@ const char *state_names[] = {
     "STATE_READY_MANUAL",
     "STATE_READY_AUTONOMOUS",
     "STATE_AS_EMERGENCY"};
-
-// VCU signals structure
-typedef struct {
-    bool r2d_button_signal;  // R2D signal
-    bool r2d_toggle_signal;  // R2D toggle signal
-    bool r2d_button_prev;    // Previous state of button for edge detection
-
-    bool r2d_autonomous_signal;  // R2D signal from autonomous system
-
-    bool shutdown_signal;  // Shutdown signal
-
-    uint8_t brake_pressure;  // Brake pressure signal
-
-    bool ignition_ad;             // ignition comming from autonomous system
-    bool ignition_switch_signal;  // Ignition signal
-
-    bool precharge_signal;  // Precharge signal
-    bool manual;            // Manual mode signal
-    bool autonomous;        // Autonomous mode signal
-
-    bool AS_emergency;
-
-    // R2D sound control variables
-    bool r2d_sound_playing;         // Flag indicating if R2D sound is currently playing
-    bool r2d_sound_completed;       // Flag indicating if R2D sound has been played for current R2D event
-    uint32_t r2d_sound_start_time;  // Timestamp when R2D sound started
-
-    // Emergency sound control variables
-    bool emergency_sound_playing;          // Flag indicating if emergency sound is currently playing
-    bool emergency_sound_completed;        // Flag indicating if emergency sound has been played for current emergency event
-    uint32_t emergency_sound_start_time;   // Timestamp when emergency sound started
-    uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
-    bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
-} VCU_Signals_t;
-
-long erpm_temporary = 0;  // Temporary variable for ERPM calculations
-
-// Initialize all signals to 0
-VCU_Signals_t vcu = {
-    .precharge_signal = false,
-
-    .r2d_button_signal = false,
-    .r2d_toggle_signal = false,
-    .r2d_button_prev = false,
-    // All other fields will be initialized to 0/false by default
-};
 
 #pragma endregion Global Variables
 
@@ -233,11 +188,10 @@ VCU_Signals_t vcu = {
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
-#pragma region Function Prototypes
 void SystemClock_Config(void);
 static void MPU_Config(void);
 /* USER CODE BEGIN PFP */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
     // Process the data
 }
 
@@ -245,72 +199,17 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef *hadc) {
 void execute_10ms_tasks(void);
 void execute_100ms_tasks(void);
 void execute_immediate_tasks(void);
+void process_can_rx_queues(void);
 
 // Button debounce function declaration
-void debounce_r2d_button(void);
+// void debounce_r2d_button(void);
 void debounce_shutdown_signal(void);
-void debounce_ignition_switch(void);
+// void debounce_ignition_switch(void);
 #pragma endregion Function Prototypes
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-void CAN1_Filter_Config(void) {
-    CAN_FilterTypeDef canfilterconfig;
-
-    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
-    canfilterconfig.FilterBank = 0;
-    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
-    canfilterconfig.FilterIdLow = 0x0000;
-    canfilterconfig.FilterMaskIdHigh = 0x0000;
-    canfilterconfig.FilterMaskIdLow = 0x0000;
-    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
-    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
-
-    if (HAL_CAN_ConfigFilter(&hcan1, &canfilterconfig) != HAL_OK) {
-        Error_Handler();
-    }
-}
-
-void CAN2_Filter_Config(void) {
-    CAN_FilterTypeDef canfilterconfig;
-
-    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
-    canfilterconfig.FilterBank = 14;
-    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
-    canfilterconfig.FilterIdLow = 0x0000;
-    canfilterconfig.FilterMaskIdHigh = 0x0000;
-    canfilterconfig.FilterMaskIdLow = 0x0000;
-    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
-    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
-
-    if (HAL_CAN_ConfigFilter(&hcan2, &canfilterconfig) != HAL_OK) {
-        Error_Handler();
-    }
-}
-
-void CAN3_Filter_Config(void) {
-    CAN_FilterTypeDef canfilterconfig;
-
-    canfilterconfig.FilterActivation = CAN_FILTER_ENABLE;
-    canfilterconfig.FilterBank = 0;
-    canfilterconfig.FilterFIFOAssignment = CAN_RX_FIFO0;
-
-    canfilterconfig.FilterIdHigh = 0x0000;  // Accept all IDs
-    canfilterconfig.FilterIdLow = 0x0000;
-    canfilterconfig.FilterMaskIdHigh = 0x0000;
-    canfilterconfig.FilterMaskIdLow = 0x0000;
-
-    canfilterconfig.FilterMode = CAN_FILTERMODE_IDMASK;
-    canfilterconfig.FilterScale = CAN_FILTERSCALE_32BIT;
-
-    if (HAL_CAN_ConfigFilter(&hcan3, &canfilterconfig) != HAL_OK) {
-        Error_Handler();
-    }
-}
 
 /* -------------------- SENSOR FUNCTIONS -------------------- */
 /**
@@ -320,6 +219,8 @@ void CAN3_Filter_Config(void) {
  * @details Converts ADC reading to voltage, then to pressure using calibration formula.
  *          Sensor characteristics: 28.57mV/bar with 0.5V offset (0 bar = 0.5V)
  */
+
+/*
 float MeasureBrakePressure(uint16_t bits) {
     // Constants for clarity
     const float ADC_MAX = 4095.0f;
@@ -358,13 +259,13 @@ float MeasureBrakePressure(uint16_t bits) {
     }
 
     return pressure;  // Return the brake pressure in bar
-}
+}*/
 
 /**
  * @brief Controls the brake light based on brake pressure and regenerative braking
  * @param brake_pressure Current brake pressure in bar
  * @details Turns the brake light on when pressure exceeds minimum threshold
- *          or when regenerative braking is active (negative current from HV500)
+ *          or when regenerative braking is active (negative current from FSIC_t)
  */
 void turn_on_brake_light(uint8_t brake_pressure) {
     // Define thresholds for brake light activation (can be adjusted as needed)
@@ -373,7 +274,9 @@ void turn_on_brake_light(uint8_t brake_pressure) {
 
     // Check if brake pressure exceeds threshold OR regenerative braking is active
     bool physical_braking = (brake_pressure >= BRAKE_LIGHT_THRESHOLD);
-    bool regen_braking = (myHV500.Actual_DCCurrent < REGEN_CURRENT_THRESHOLD);
+    // SAFETY-CRITICAL: Regen braking detection — sum DC current from both inverters
+    int16_t total_dc_current = (int16_t)(myFSIC1.Actual_DCCurrent + myFSIC2.Actual_DCCurrent);
+    bool regen_braking = (total_dc_current < REGEN_CURRENT_THRESHOLD);
 
     if (physical_braking || regen_braking) {
         // Turn brake light on
@@ -430,7 +333,7 @@ void MovingAverage_Update(uint16_t apps1_raw, uint16_t apps2_raw) {
  * @param GPIO_Port GPIO port of the LED
  * @param GPIO_Pin GPIO pin of the LED
  */
-void heartbeat_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
+void heartbeat_nonblocking(GPIO_TypeDef* GPIO_Port, uint16_t GPIO_Pin) {
     static uint32_t previous_tick = 0;
     static uint8_t state = 0;
 
@@ -523,7 +426,7 @@ void startup_leds_animation(void) {
  * @param GPIO_Port GPIO port of the LED
  * @param GPIO_Pin GPIO pin of the LED
  */
-void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
+void led_fade_nonblocking(GPIO_TypeDef* GPIO_Port, uint16_t GPIO_Pin) {
     static uint32_t last_update_time = 0;
     static uint32_t fade_counter = 0;
     static uint32_t pwm_counter = 0;
@@ -562,7 +465,7 @@ void led_fade_nonblocking(GPIO_TypeDef *GPIO_Port, uint16_t GPIO_Pin) {
  * @param htim PWM timer handle
  * @param channel Timer channel to update
  */
-void led_fade_pwm(TIM_HandleTypeDef *htim, uint32_t channel) {
+void led_fade_pwm(TIM_HandleTypeDef* htim, uint32_t channel) {
     static uint32_t last_update_time = 0;
     static uint16_t brightness = 0;
     static int8_t direction = 1;                  // 1 = increasing, -1 = decreasing
@@ -608,7 +511,7 @@ void StartR2DSound(void) {
         // Activate buzzer - set the GPIO pin that controls the buzzer
         HAL_GPIO_WritePin(GPIOD, dout4_R2D_Buzzer_Pin, GPIO_PIN_SET);
 
-        printf("\n\rR2D Sound: Started\n\r");
+        DBG_PRINTF("\n\rR2D Sound: Started\n\r");
     }
 }
 
@@ -630,7 +533,7 @@ void UpdateR2DSound(void) {
             vcu.r2d_sound_playing = false;
             vcu.r2d_sound_completed = true;
 
-            printf("\n\rR2D Sound: Completed\n\r");
+            DBG_PRINTF("\n\rR2D Sound: Completed\n\r");
         }
     }
 }
@@ -661,7 +564,7 @@ void StartEmergencySound(void) {
         // Activate buzzer
         HAL_GPIO_WritePin(GPIOD, dout4_R2D_Buzzer_Pin, GPIO_PIN_SET);
 
-        printf("\n\rEmergency Sound: Started\n\r");
+        DBG_PRINTF("\n\rEmergency Sound: Started\n\r");
     }
 }
 
@@ -697,7 +600,7 @@ void UpdateEmergencySound(void) {
             vcu.emergency_sound_playing = false;
             vcu.emergency_sound_completed = true;
 
-            printf("\n\rEmergency Sound: Completed\n\r");
+            DBG_PRINTF("\n\rEmergency Sound: Completed\n\r");
         }
     }
 }
@@ -742,7 +645,7 @@ void HandleEmergencyStop(void) {
  * @param to New state
  */
 void print_state_transition(VCU_STATE_t from, VCU_STATE_t to) {
-    printf("\n\rState transition: %s -> %s\n", state_names[from], state_names[to]);
+    DBG_PRINTF("\n\rState transition: %s -> %s\n", state_names[from], state_names[to]);
 }
 
 #pragma region UPDATE STATE
@@ -756,12 +659,15 @@ void UpdateState(void) {
 
     // Process emergency condition with highest priority
     if (((acu.is_in_emergency == 1) || (as_system.state == 4) || (res.signal == 0)) && current_state != STATE_AS_EMERGENCY) {
+        // if ((acu.is_in_emergency == 1) || (as_system.state == 4) && current_state != STATE_AS_EMERGENCY) {
         current_state = STATE_AS_EMERGENCY;
     }
 
-    debounce_shutdown_signal();         // Update shutdown signal with debounce
-    debounce_ignition_switch();         // Update ignition switch signal with debounce
-    vcu.ignition_ad = acu.ignition_ad;  // Read ignition signal from autonomous system
+    // NO LONGER NEEDED
+    debounce_shutdown_signal();  // Update shutdown signal with debounce
+    // debounce_ignition_switch();         // Update ignition switch signal with debounce
+    // Map ignition_ad directly from ACU signal
+    vcu.ignition_ad = acu.ignition_ad;
 
     // State transitions
     switch (current_state) {
@@ -806,11 +712,10 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (Bypass_precharge || bms.precharge_circuit_state == 9) {
+            } else if (Bypass_precharge || bms.precharge_circuit_state == 16) {
                 current_state = vcu.manual ? STATE_WAITING_FOR_R2D_MANUAL : STATE_WAITING_FOR_R2D_AUTO;
             }
             break;
-
         case STATE_WAITING_FOR_R2D_MANUAL:
 
             if (!vcu.ignition_switch_signal || !vcu.shutdown_signal) {
@@ -818,13 +723,8 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-                //} else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD)) {
-            } else if (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0))) {
-                // Handle R2D button debounce
-                debounce_r2d_button();
-                if (vcu.r2d_toggle_signal) {
-                    current_state = STATE_READY_MANUAL;
-                }
+            } else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0)))) {
+                current_state = STATE_READY_MANUAL;
             }
             break;
 
@@ -840,7 +740,7 @@ void UpdateState(void) {
             break;
 
         case STATE_READY_MANUAL:
-            debounce_r2d_button();
+            // debounce_r2d_button();
             if (!vcu.ignition_switch_signal || !vcu.shutdown_signal) {
                 // Change to standby if ignition is off
                 current_state = STATE_STANDBY;
@@ -921,17 +821,18 @@ void UpdateState(void) {
                 break;
             case STATE_SHUTDOWN:
             case STATE_STANDBY:
-                can_bus_send_bms_precharge_state(0, &hcan2);
+                can_bus_send_bms_close_contactors(0, &hcan2);
                 // Reset critical flags when entering standby
                 vcu.manual = false;
                 vcu.autonomous = false;
 
-                memset(&vcu, 0, sizeof(VCU_Signals_t));      // Reset all VCU signals
-                memset(&as_system, 0, sizeof(AS_System_t));  // Reset autonomous system state
-                memset(&acu, 0, sizeof(ACU_t));              // Reset ACU state
+                memset(&vcu, 0, sizeof(VCU_Signals_t));             // Reset all VCU signals
+                memset((void*)&as_system, 0, sizeof(AS_System_t));  // Reset autonomous system state
+                memset((void*)&acu, 0, sizeof(ACU_t));              // Reset ACU state
                 // memset(&res, 0, sizeof(RES_t));              // Reset RES state
                 // memset(&bms, 0, sizeof(BMSvars_t));  // Reset BMS variables
-                memset(&myHV500, 0, sizeof(HV500));  // Reset HV500 variables
+                memset((void*)&myFSIC1, 0, sizeof(FSIC_t));  // Reset FSIC INV1 variables
+                memset((void*)&myFSIC2, 0, sizeof(FSIC_t));  // Reset FSIC INV2 variables
 
                 vcu.r2d_button_signal = false;      // Reset R2D button signal
                 vcu.r2d_toggle_signal = false;      // Reset R2D toggle signal
@@ -970,7 +871,7 @@ void UpdateState(void) {
                 break;
 
             case STATE_AS_EMERGENCY:
-                can_bus_send_bms_precharge_state(0, &hcan2);
+                can_bus_send_bms_close_contactors(0, &hcan2);
 
                 break;
         }
@@ -995,7 +896,7 @@ void HandleState(void) {
             static uint32_t last_can_send_time_shutdown = 0;
             uint32_t current_time_shutdown = HAL_GetTick();
             if (current_time_shutdown - last_can_send_time_shutdown >= 1) {
-                can_bus_send_bms_precharge_state(0, &hcan2);
+                can_bus_send_bms_close_contactors(0, &hcan2);
                 last_can_send_time_shutdown = current_time_shutdown;
             }
 
@@ -1005,7 +906,7 @@ void HandleState(void) {
             static uint32_t last_can_send_time_standby = 0;
             uint32_t current_time_standby = HAL_GetTick();
             if (current_time_standby - last_can_send_time_standby >= 1) {
-                can_bus_send_bms_precharge_state(0, &hcan2);
+                can_bus_send_bms_close_contactors(0, &hcan2);
                 last_can_send_time_standby = current_time_standby;
             }
 
@@ -1017,7 +918,7 @@ void HandleState(void) {
             static uint32_t last_can_send_time_precharge = 0;
             uint32_t current_time_precharge = HAL_GetTick();
             if (current_time_precharge - last_can_send_time_precharge >= 10) {
-                can_bus_send_bms_precharge_state(1, &hcan2);
+                can_bus_send_bms_close_contactors(1, &hcan2);
                 last_can_send_time_precharge = current_time_precharge;
             }
 
@@ -1031,7 +932,7 @@ void HandleState(void) {
             static uint32_t last_can_send_time_r2d_manual = 0;
             uint32_t current_time_r2d_manual = HAL_GetTick();
             if (current_time_r2d_manual - last_can_send_time_r2d_manual >= 10) {
-                can_bus_send_bms_precharge_state(1, &hcan2);
+                can_bus_send_bms_close_contactors(1, &hcan2);
                 last_can_send_time_r2d_manual = current_time_r2d_manual;
             }
 
@@ -1046,7 +947,7 @@ void HandleState(void) {
             uint32_t current_time_r2d_auto = HAL_GetTick();
 
             if (current_time_r2d_auto - last_can_send_time_r2d_auto >= 10) {
-                can_bus_send_bms_precharge_state(1, &hcan2);
+                can_bus_send_bms_close_contactors(1, &hcan2);
                 last_can_send_time_r2d_auto = current_time_r2d_auto;
             }
             break;
@@ -1059,9 +960,11 @@ void HandleState(void) {
             uint32_t current_time_manuel = HAL_GetTick();
 
             if (current_time_manuel - last_can_send_time_manuel >= 5) {
-                can_bus_send_HV500_SetDriveEnable(1, &hcan2);
-                can_bus_send_HV500_SetRelCurrent(apps_bspd_pau, &hcan2);
-                can_bus_send_bms_precharge_state(1, &hcan2);
+                can_bus_send_FSIC_SetDriveEnable(1, 1, &hcan2);             // INV1 drive enable
+                can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);             // INV2 drive enable
+                can_bus_send_FSIC_SetRelCurrent(1, apps_bspd_pau, &hcan2);  // INV1 torque command
+                can_bus_send_FSIC_SetRelCurrent(2, apps_bspd_pau, &hcan2);  // INV2 torque command
+                can_bus_send_bms_close_contactors(1, &hcan2);
                 last_can_send_time_manuel = current_time_manuel;
             }
             break;
@@ -1072,14 +975,14 @@ void HandleState(void) {
             uint32_t current_time_auto = HAL_GetTick();
 
             if (current_time_auto - last_can_send_time_auto >= 10) {
-                can_bus_send_HV500_SetDriveEnable(1, &hcan2);
+                can_bus_send_FSIC_SetDriveEnable(1, 1, &hcan2);  // INV1 drive enable
+                can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);  // INV2 drive enable
                 // finished
                 if (as_system.state == 5) {
-                    can_bus_send_HV500_SetERPM(0, &hcan2);
-                    can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
-                    // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
-                    can_bus_send_bms_precharge_state(1, &hcan2);
-                    last_can_send_time_auto = current_time_auto;
+                    can_bus_send_FSIC_SetERPM(1, 0, &hcan2);                                               // INV1 ERPM zero
+                    can_bus_send_FSIC_SetERPM(2, 0, &hcan2);                                               // INV2 ERPM zero
+                    can_send_vcu_rpm(&hcan3, (int32_t)myFSIC1.Actual_ERPM, (int32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
+                    can_bus_send_bms_close_contactors(1, &hcan2);
 
                     // driving
                 } else if (as_system.state == 3) {
@@ -1089,16 +992,17 @@ void HandleState(void) {
                         as_system.target_rpm = 0;
                     }
 
-                    uint32_t erpm = as_system.target_rpm * 10;
-                    can_bus_send_HV500_SetERPM(erpm, &hcan2);
-                    can_send_vcu_rpm(&hcan3, erpm_temporary);  // feedback to jetson
-                    // can_send_vcu_rpm(&hcan3, myHV500.Actual_ERPM);
-                    can_bus_send_bms_precharge_state(1, &hcan2);
-                    last_can_send_time_auto = current_time_auto;
+                    int32_t erpm = (int32_t)as_system.target_rpm * MOTOR_POLE_PAIRS;
+                    can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);                                            // INV1 ERPM command
+                    can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);                                            // INV2 ERPM command
+                    can_send_vcu_rpm(&hcan3, (int32_t)myFSIC1.Actual_ERPM, (int32_t)myFSIC2.Actual_ERPM);  // feedback to jetson
+                    can_bus_send_bms_close_contactors(1, &hcan2);
 
-                    // printf("\n\rRPM: %d\n\r", myHV500.Actual_ERPM / 10);
+                    // printf("\n\rRPM: %d\n\r", myFSIC1.Actual_ERPM / 10);
                     // printf("\n\rTarget RPM: %d\n\r", as_system.target_rpm);
                 }
+
+                last_can_send_time_auto = current_time_auto;
             }
             break;
 
@@ -1108,7 +1012,7 @@ void HandleState(void) {
             static uint32_t last_can_send_time_emergency = 0;
             uint32_t current_time_emergency = HAL_GetTick();
             if (current_time_emergency - last_can_send_time_emergency >= 1) {
-                can_bus_send_bms_precharge_state(0, &hcan2);
+                can_bus_send_bms_close_contactors(0, &hcan2);
                 last_can_send_time_emergency = current_time_emergency;
             }
             HandleEmergencyStop();
@@ -1118,7 +1022,9 @@ void HandleState(void) {
 #pragma endregion HANDLE STATE
 
 // Time-based debounce for R2D button
-void debounce_r2d_button(void) {
+
+//---No longer needed - Comes in via CAN2----//
+/*void debounce_r2d_button(void) {
     static uint32_t last_debounce_time = 0;
     static bool last_reading = false;
     static bool stable_state = false;
@@ -1150,7 +1056,7 @@ void debounce_r2d_button(void) {
 
     // Update raw signal for any code that needs it
     vcu.r2d_button_signal = stable_state;
-}
+}*/
 
 // Time-based debounce for shutdown signal
 void debounce_shutdown_signal(void) {
@@ -1178,10 +1084,15 @@ void debounce_shutdown_signal(void) {
 
     // Update VCU signal with debounced value
     vcu.shutdown_signal = stable_state;
+
+#ifdef BYPASS_SHUTDOWN
+    vcu.shutdown_signal = 1;  // Force shutdown signal high for bench testing
+#endif
 }
 
 // Time-based debounce for ignition switch
-void debounce_ignition_switch(void) {
+// IGNITION DEBOUNCE LOGIC
+/*void debounce_ignition_switch(void) {
     static uint32_t last_debounce_time = 0;
     static bool last_reading = false;
     static bool stable_state = false;
@@ -1206,7 +1117,7 @@ void debounce_ignition_switch(void) {
 
     // Update VCU signal with debounced value
     vcu.ignition_switch_signal = stable_state;
-}
+}*/
 
 /* -------------------- TIMED TASK FUNCTIONS -------------------- */
 
@@ -1215,23 +1126,38 @@ void debounce_ignition_switch(void) {
  * @details High-frequency tasks that need precise timing
  */
 void execute_10ms_tasks(void) {
-    // Send autonomous HV signal
-    can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
+    if ((HAL_GetTick() - last_apps_can_rx_time) > MAX_APPS_TIMEOUT_MS) {
+        // at least cut off throttle...
+        ADC2_APPS[0] = 0;
+        ADC2_APPS[1] = 0;
+        // Maybe trigger state emergency??
+        // current_state = STATE_AS_EMERGENCY;
+    }
 
-    can_bus_send_vcu_apps_raw(&hcan3, ADC2_APPS[0], ADC2_APPS[1], 0, 0, bspd_state.bspd_active, result.error_type, result.percentage_1000);
+    // if ((HAL_GetTick() - last_acu_can_rx_time) > 2000) {
+    //     acu.ignition_ad = 0;  // ACU timeout fail-safe
+    // }
 
-    // Send heartbeat frame on CAN2
-    uint8_t data[8] = {0};
-    CAN_TxHeaderTypeDef TxHeader;
-    TxHeader.StdId = 0x69;
-    TxHeader.ExtId = 0;
-    TxHeader.RTR = CAN_RTR_DATA;
-    TxHeader.IDE = CAN_ID_STD;
-    TxHeader.DLC = 8;
-    TxHeader.TransmitGlobalTime = DISABLE;
+    // MAYBE WE IMPLEMENT, IF THERES TIME (NOTE: CANT KILL IGNITION LIKE THAT!!)
+    /*if ((HAL_GetTick() - last_r2d_ign_can_rx_time) > MAX_R2D_IGN_TIMEOUT_MS) {
+                vcu.r2d_button_signal = 0;
+                vcu.ignition_switch_signal = 0;
+            }*/
 
-    uint32_t TxMailbox;
-    HAL_CAN_AddTxMessage(&hcan2, &TxHeader, data, &TxMailbox);
+    // Rate limit telemetry CAN messages to 100Hz (10ms)
+    static uint32_t last_telemetry_send_time = 0;
+    uint32_t current_telemetry_time = HAL_GetTick();
+    if (current_telemetry_time - last_telemetry_send_time >= 10) {
+        // Send autonomous HV signal
+        can_send_autonomous_HV_signal(&hcan3, bms.precharge_circuit_state, vcu.brake_pressure);
+
+        can_bus_send_vcu_apps_raw(&hcan3, ADC2_APPS[0], ADC2_APPS[1], 0, 0, bspd_state.bspd_active, result.error_type, result.percentage_1000);
+
+        // Send VCU_state DBC message on CAN2 (via TX queue)
+        can_bus_send_vcu_state();
+
+        last_telemetry_send_time = current_telemetry_time;
+    }
 
 #if CALIBRATE_APPS
     // If calibration is in progress, update it
@@ -1239,9 +1165,9 @@ void execute_10ms_tasks(void) {
         bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
         if (calibration_complete) {
             // Optionally, automatically apply the calibration
-            uint16_t min, max, tolerance, delta;
-            APPS_GetCalibrationValues(&min, &max, &tolerance, &delta);
-            APPS_Init(min, max, tolerance, delta);
+            uint16_t min, max, tolerance;
+            APPS_GetCalibrationValues(&min, &max, &tolerance);
+            APPS_Init(min, max, tolerance);
         }
     }
 #endif
@@ -1257,7 +1183,8 @@ void execute_10ms_tasks(void) {
  */
 void execute_100ms_tasks(void) {
     // Read brake pressure from ADC
-    vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
+    // NOW DONE BY CAN
+    // vcu.brake_pressure = MeasureBrakePressure(ADC1_VAL[0]);
     turn_on_brake_light(vcu.brake_pressure);
 
     // Debug prints (uncomment if needed)
@@ -1277,48 +1204,58 @@ void execute_100ms_tasks(void) {
 
     switch (frame_index) {
         case 0:
-            send_vcu_0(&hcan1, &myHV500);
-            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
-                       vcu.ignition_ad, &myHV500);
+            send_vcu_0(&hcan1, (const FSIC_t*)&myFSIC1);
+            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.ignition_switch_signal, vcu.r2d_autonomous_signal,
+                       vcu.ignition_ad, (const FSIC_t*)&myFSIC1);
 
             break;
         case 1:
-            send_vcu_1(&hcan1, &myHV500, &bms);
+            send_vcu_1(&hcan1, (const FSIC_t*)&myFSIC1, (const BMSvars_t*)&bms);
             can_bus_send_brake_pressure(&hcan1, vcu.brake_pressure);
             break;
         case 2:
-            send_vcu_2(&hcan1, &myHV500);
+            send_vcu_2(&hcan1, (const FSIC_t*)&myFSIC1);
             break;
         case 3:
-            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.r2d_autonomous_signal, vcu.ignition_switch_signal,
-                       vcu.ignition_ad, &myHV500);
+            send_vcu_3(&hcan1, vcu.r2d_toggle_signal, vcu.ignition_switch_signal, vcu.r2d_autonomous_signal,
+                       vcu.ignition_ad, (const FSIC_t*)&myFSIC1);
             break;
         case 4:
-            send_vcu_4(&hcan1, &acu);
+            send_vcu_4(&hcan1, (const ACU_t*)&acu);
             break;
     }
 
     // Move to next frame for next execution (cycles through 0-4)
     frame_index = (frame_index + 1) % 5;
-} /**
-   * @brief Execute immediate tasks (every loop iteration)
-   * @details Tasks that need to run as fast as possible
-   */
+}
+
+void process_can_rx_queues(void) {
+    can_msg_t msg;
+
+    /* CAN1 — Data bus */
+    while (can_queue_pop(&can1_rx_queue, &msg)) {
+        // Future: decode data bus messages
+        (void)msg;
+    }
+
+    /* CAN2 — Powertrain */
+    while (can_queue_pop(&can2_rx_queue, &msg)) {
+        decode_powertrain_bus(&msg, (BMSvars_t*)&bms, (FSIC_t*)&myFSIC1, (FSIC_t*)&myFSIC2, (IVT_t*)&ivt);
+    }
+
+    /* CAN3 — Autonomous */
+    while (can_queue_pop(&can3_rx_queue, &msg)) {
+        decode_autonomous_bus(&msg, (AS_System_t*)&as_system, (ACU_t*)&acu, (RES_t*)&res);
+    }
+}
+
+/**
+ * @brief Execute immediate tasks (every loop iteration)
+ * @details Tasks that need to run as fast as possible
+ */
 void execute_immediate_tasks(void) {
     // Heartbeat LED indicator
     heartbeat_nonblocking(GPIOB, LED_Heartbeat_Pin);
-
-    // Process CAN3 messages (autonomous bus)
-    if (HAL_CAN_GetRxFifoFillLevel(&hcan3, CAN_RX_FIFO0) > 0) {
-        CAN_RxHeaderTypeDef RxHeader;
-        uint8_t RxData[8];
-        if (HAL_CAN_GetRxMessage(&hcan3, CAN_RX_FIFO0, &RxHeader, RxData) == HAL_OK) {
-            decode_auto_bus(RxHeader, RxData, &as_system, &acu, &res);
-        }
-    }
-
-    // Update moving average with new APPS values
-    MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
 
     // Update state machine
     UpdateState();
@@ -1335,33 +1272,18 @@ void execute_immediate_tasks(void) {
 PUTCHAR_PROTOTYPE {
     /* Place your implementation of fputc here */
     /* e.g. write a character to the USART1 and Loop until the end of transmission */
-    HAL_UART_Transmit(&huart3, (uint8_t *)&ch, 1, 0xFFFF);
+    HAL_UART_Transmit(&huart3, (uint8_t*)&ch, 1, 0xFFFF);
 
     return ch;
 }
 
-void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef *hcan) {
-    // CAN_RxHeaderTypeDef RxHeader1;
-    // uint8_t RxData1[8];
-    CAN_RxHeaderTypeDef RxHeader2;
-    uint8_t RxData2[8];
-    // CAN_RxHeaderTypeDef RxHeader3;
-    // uint8_t RxData3[8];
-
-    if (HAL_CAN_GetRxMessage(&hcan2, CAN_RX_FIFO0, &RxHeader2, RxData2) == HAL_OK) {
-        if (RxHeader2.StdId == 0x14) {
-            erpm_temporary = RxData2[0] << 24 | RxData2[1] << 16 | RxData2[2] << 8 | RxData2[3];
-            // printf("\n\rERPM: %d\n\r", erpm_temporary);
-        }
-        //} else {
-        //    can_filter_id_bus2(RxHeader2, RxData2);
-        //}
-
-        can_filter_id_bus2(RxHeader2, RxData2, &bms, &myHV500, &ivt);
-    }
+void HAL_CAN_RxFifo0MsgPendingCallback(CAN_HandleTypeDef* hcan) {
+    can_driver_rx_isr(hcan);
 }
+
 #pragma region MAIN
 /* USER CODE END 0 */
+
 /**
  * @brief  The application entry point.
  * @retval int
@@ -1406,9 +1328,7 @@ int main(void) {
     MX_GPIO_Init();
     MX_DMA_Init();
     MX_USART1_UART_Init();
-    // MX_ADC3_Init();
     MX_ADC1_Init();
-    MX_ADC2_Init();
     MX_CAN3_Init();
     MX_CAN1_Init();
     MX_CAN2_Init();
@@ -1416,29 +1336,11 @@ int main(void) {
     MX_TIM4_Init();
     MX_USART3_UART_Init();
     MX_TIM2_Init();
-
     /* USER CODE BEGIN 2 */
+    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE);  // Initialize APPS
     HAL_TIM_Base_Start_IT(&htim2);
 
-    // Configure filters with different banks
-    CAN1_Filter_Config();
-    CAN2_Filter_Config();
-    CAN3_Filter_Config();
-
-    // Enable interrupts for all
-    if (HAL_CAN_ActivateNotification(&hcan1, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-        Error_Handler();
-    }
-    if (HAL_CAN_ActivateNotification(&hcan2, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-        Error_Handler();
-    }
-    if (HAL_CAN_ActivateNotification(&hcan3, CAN_IT_RX_FIFO0_MSG_PENDING) != HAL_OK) {
-        Error_Handler();
-    }
-
-    HAL_CAN_Start(&hcan1);
-    HAL_CAN_Start(&hcan2);
-    HAL_CAN_Start(&hcan3);
+    can_driver_init();
 
     startup_leds_animation();
     MovingAverage_Init();  // Initialize moving average buffers
@@ -1451,14 +1353,13 @@ int main(void) {
     /* Infinite loop */
     /* USER CODE BEGIN WHILE */
 
-    HAL_ADC_Start_DMA(&hadc1, ADC1_VAL, 4);
-    HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
-                                              // Calibrate APPS
+    HAL_ADC_Start_DMA(&hadc1, (uint32_t*)ADC1_VAL, 4);
+    // HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
+    //  Calibrate APPS
 
-    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE, __APPS_DELTA);  // Initialize APPS
     bspd_init(&bspd_state);
     res.signal = RES_SIGNAl_DEFAULT_1;  // start with a value different than 0 to avoid emergency state
-    printf("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
+    DBG_PRINTF("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
 
 #if CALIBRATE_APPS
     APPS_StartCalibration();
@@ -1468,6 +1369,12 @@ int main(void) {
         /* USER CODE END WHILE */
 
         /* USER CODE BEGIN 3 */
+
+        // Drain TX queues to hardware
+        can_driver_tx_poll();
+
+        // Process RX queues (decode in main context, not ISR)
+        process_can_rx_queues();
 
         // Execute immediate tasks every loop iteration
         execute_immediate_tasks();
@@ -1488,18 +1395,10 @@ int main(void) {
             execute_100ms_tasks();
             previous_tick_100ms = current_tick;
         }
-
-        // Optional: Add more timing intervals here if needed
-        // Example for 1000ms (1Hz) tasks:
-        // static uint32_t previous_tick_1s = 0;
-        // if (current_tick - previous_tick_1s >= 1000) {
-        //     execute_1s_tasks();s
-        //     previous_tick_1s = current_tick;
-        // }
     }
     /* USER CODE END 3 */
 }
-#pragma endregion MAIN
+
 /**
  * @brief System Clock Configuration
  * @retval None
@@ -1550,7 +1449,7 @@ void SystemClock_Config(void) {
 
 /* USER CODE BEGIN 4 */
 /* Timer interrupt callback */
-void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef* htim) {
     MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
     result = APPS_Process(apps2_avg, apps1_avg);
 
@@ -1614,7 +1513,7 @@ void Error_Handler(void) {
  * @param  line: assert_param error line source number
  * @retval None
  */
-void assert_failed(uint8_t *file, uint32_t line) {
+void assert_failed(uint8_t* file, uint32_t line) {
     /* USER CODE BEGIN 6 */
     /* User can add his own implementation to report the file name and line number,
        ex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */

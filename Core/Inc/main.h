@@ -1,21 +1,21 @@
 /* USER CODE BEGIN Header */
 /**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  * @attention
-  *
-  * Copyright (c) 2025 STMicroelectronics.
-  * All rights reserved.
-  *
-  * This software is licensed under terms that can be found in the LICENSE file
-  * in the root directory of this software component.
-  * If no LICENSE file comes with this software, it is provided AS-IS.
-  *
-  ******************************************************************************
-  */
+ ******************************************************************************
+ * @file           : main.h
+ * @brief          : Header for main.c file.
+ *                   This file contains the common defines of the application.
+ ******************************************************************************
+ * @attention
+ *
+ * Copyright (c) 2025 STMicroelectronics.
+ * All rights reserved.
+ *
+ * This software is licensed under terms that can be found in the LICENSE file
+ * in the root directory of this software component.
+ * If no LICENSE file comes with this software, it is provided AS-IS.
+ *
+ ******************************************************************************
+ */
 /* USER CODE END Header */
 
 /* Define to prevent recursive inclusion -------------------------------------*/
@@ -61,8 +61,6 @@ void Error_Handler(void);
 #define adc1_in1_brake_pressure_GPIO_Port GPIOA
 #define int1_ign_Pin GPIO_PIN_7
 #define int1_ign_GPIO_Port GPIOA
-#define int2_r2d_Pin GPIO_PIN_4
-#define int2_r2d_GPIO_Port GPIOC
 #define int3_shutdown_signal_Pin GPIO_PIN_0
 #define int3_shutdown_signal_GPIO_Port GPIOB
 #define dout3_Water_Pump_Pin GPIO_PIN_14
@@ -85,7 +83,15 @@ void Error_Handler(void);
 #define dout1_BMS_IGN_GPIO_Port GPIOB
 
 /* USER CODE BEGIN Private defines */
+#define DEBUG_PRINT
+#define BYPASS_SHUTDOWN
 
+#ifdef DEBUG_PRINT
+#include <stdio.h>
+#define DBG_PRINTF(...) printf(__VA_ARGS__)
+#else
+#define DBG_PRINTF(...) ((void)0)
+#endif
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus
