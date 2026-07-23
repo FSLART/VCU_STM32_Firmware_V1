@@ -583,7 +583,13 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
             }
             break;
         }
-        case (0x181u): {
+        case (AUTONOMOUS_T26_RES_FRAME_ID): {
+            // Manual Decode
+            if (msg->dlc >= 1) {
+                res->signal = data[0];
+                debug_res_signal = data[0];
+            }
+            break;
         //case AUTONOMOUS_T26_RES_FRAME_ID: {
             /* 
             struct autonomous_t26_res_t res_ad;
@@ -592,13 +598,6 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
                 res->signal = res_ad.signal;
             }
             */
-            
-            // Manual Decode
-            if (msg->dlc >= 1) {
-                res->signal = data[0];
-                debug_res_signal = data[0];
-            }
-            break;
         }
         case AUTONOMOUS_T26_VCU_RPM_TARGET_FRAME_ID: {
             struct autonomous_t26_vcu_rpm_target_t target_rpm;
