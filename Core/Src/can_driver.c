@@ -109,7 +109,8 @@ bool can_driver_rx_poll(CAN_HandleTypeDef* hcan, can_msg_t* msg) {
     if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, msg->data) != HAL_OK)
         return false;
 
-    msg->id = rx_header.StdId;
+    msg->is_extended = (rx_header.IDE == CAN_ID_EXT);
+    msg->id = msg->is_extended ? rx_header.ExtId : rx_header.StdId;
     msg->dlc = rx_header.DLC;
     msg->timestamp = HAL_GetTick();
     return true;
@@ -147,10 +148,11 @@ void can_driver_rx_isr(CAN_HandleTypeDef* hcan) {
         if (HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO0, &rx_header, msg.data) != HAL_OK)
             break;
 
-        msg.id        = rx_header.StdId;
-        msg.dlc       = rx_header.DLC;
-        msg.bus       = bus;
-        msg.timestamp = HAL_GetTick();
+        msg.is_extended = (rx_header.IDE == CAN_ID_EXT);
+        msg.id          = msg.is_extended ? rx_header.ExtId : rx_header.StdId;
+        msg.dlc         = rx_header.DLC;
+        msg.bus         = bus;
+        msg.timestamp   = HAL_GetTick();
 
         can_queue_push(q, &msg);
         (*rx_count)++;

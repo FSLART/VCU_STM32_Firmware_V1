@@ -18,12 +18,19 @@ typedef enum {
 /* CAN message entry stored in queue */
 typedef struct {
     uint32_t id;            /* CAN Standard ID */
+
     uint8_t  dlc;           /* Data length code (0-8) */
     uint8_t  bus;           /* Target bus for TX (ignored for RX). Holds a
                                 can_bus_t value; stored as uint8_t instead of
                                 the enum type so struct layout is fixed
                                 regardless of -fshort-enums or compiler ABI
                                 choices for enum underlying type. */
+    uint8_t  is_extended;   /* RX: 1 if the frame used a 29-bit extended ID
+                                (IDE bit set), 0 for an 11-bit standard ID.
+                                Every ID in our DBCs is standard-only, so
+                                consumers should treat is_extended frames as
+                                foreign traffic and discard them rather than
+                                matching msg->id against known frame IDs. */
     uint8_t  data[8];       /* Raw CAN data bytes */
     uint32_t timestamp;     /* HAL_GetTick() at reception */
 } can_msg_t;

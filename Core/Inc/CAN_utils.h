@@ -3,16 +3,18 @@
 
 #include <stdbool.h>
 
-#include "main.h"
-#include "stm32f7xx_hal.h"
 #include "can_queue.h"
 #include "fsic.h"
+#include "main.h"
 #include "powertrain_t26.h"
+#include "stm32f7xx_hal.h"
 
 /* External CAN handle declarations */
 extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
 extern CAN_HandleTypeDef hcan3;
+
+#define MOTOR_POLE_PAIRS 4
 
 typedef struct {
     uint32_t id;
@@ -101,7 +103,7 @@ typedef enum {
 
 typedef struct {
     uint8_t mission_select;
-    uint16_t target_rpm;
+    int16_t target_rpm;
     int16_t target_torque;
     AS_ControlMode_t control_mode;
     uint32_t last_control_cmd_ms;
@@ -153,7 +155,6 @@ typedef struct {
 } BMSvars_t;
 
 typedef struct {
-
     int32_t result_W;  // Resulting power in watts
 } IVT_t;
 
@@ -169,18 +170,18 @@ typedef struct {
 
     uint8_t brake_pressure;  // Brake pressure signal
 
-    bool ignition_ad;             // ignition coming from autonomous system
-    bool ignition_ad_prev;        // Previous state for edge detection
-    bool ignition_switch_signal;  // Ignition signal
-    bool ignition_toggle_signal;  // Toggled state for momentary ignition button
-    bool ignition_button_prev;    // Previous state of momentary ignition button
-    uint32_t ignition_last_toggle_time; // Timestamp for debounce
+    bool ignition_ad;                    // ignition coming from autonomous system
+    bool ignition_ad_prev;               // Previous state for edge detection
+    bool ignition_switch_signal;         // Ignition signal
+    bool ignition_toggle_signal;         // Toggled state for momentary ignition button
+    bool ignition_button_prev;           // Previous state of momentary ignition button
+    uint32_t ignition_last_toggle_time;  // Timestamp for debounce
 
     bool precharge_signal;  // Precharge signal
     bool manual;            // Manual mode signal
     bool autonomous;        // Autonomous mode signal
-    
-    uint32_t r2d_last_toggle_time; // Timestamp for debounce
+
+    uint32_t r2d_last_toggle_time;  // Timestamp for debounce
 
     bool AS_emergency;
 
@@ -200,9 +201,9 @@ typedef struct {
 // VCU signals (defined in CAN_utils.c)
 extern VCU_Signals_t vcu;
 
-//Variables
-//APPS Loss of comms tick
-extern volatile uint32_t last_apps_can_rx_time; // keeps track of the last time a valid 0x710 message came through
+// Variables
+// APPS Loss of comms tick
+extern volatile uint32_t last_apps_can_rx_time;  // keeps track of the last time a valid 0x710 message came through
 extern volatile uint32_t last_acu_can_rx_time;
 extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 extern volatile uint8_t debug_res_signal;
@@ -214,7 +215,7 @@ extern volatile uint8_t debug_res_signal;
  * @param data Pointer to data buffer
  * @param len Length of data (0-8 bytes)
  */
-void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t len);
+void can_bus_send(CAN_HandleTypeDef* hcan, uint32_t id, uint8_t* data, uint8_t len);
 
 /**
  * @brief Sets AC current on FSIC inverter
@@ -222,7 +223,7 @@ void can_bus_send(CAN_HandleTypeDef *hcan, uint32_t id, uint8_t *data, uint8_t l
  * @param ac_current AC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetAcCurrent(uint8_t inv_id, int16_t ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetAcCurrent(uint8_t inv_id, int16_t ac_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets brake current on FSIC inverter
@@ -230,7 +231,7 @@ void can_bus_send_FSIC_SetAcCurrent(uint8_t inv_id, int16_t ac_current, CAN_Hand
  * @param brake_current Brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets electrical RPM on FSIC inverter
@@ -238,7 +239,7 @@ void can_bus_send_FSIC_SetBrakeCurrent(uint8_t inv_id, int16_t brake_current, CA
  * @param erpm ERPM value (int32_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets motor position on FSIC inverter
@@ -246,7 +247,7 @@ void can_bus_send_FSIC_SetERPM(uint8_t inv_id, int32_t erpm, CAN_HandleTypeDef *
  * @param position Position value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets relative current on FSIC inverter
@@ -254,7 +255,7 @@ void can_bus_send_FSIC_SetPosition(uint8_t inv_id, int16_t position, CAN_HandleT
  * @param rel_current Relative current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets relative brake current on FSIC inverter
@@ -262,7 +263,7 @@ void can_bus_send_FSIC_SetRelCurrent(uint8_t inv_id, int16_t rel_current, CAN_Ha
  * @param rel_brake_current Relative brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetRelBrakeCurrent(uint8_t inv_id, int16_t rel_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetRelBrakeCurrent(uint8_t inv_id, int16_t rel_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets maximum AC current on FSIC inverter
@@ -270,7 +271,7 @@ void can_bus_send_FSIC_SetRelBrakeCurrent(uint8_t inv_id, int16_t rel_brake_curr
  * @param max_ac_current Maximum AC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetMaxAcCurrent(uint8_t inv_id, int16_t max_ac_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxAcCurrent(uint8_t inv_id, int16_t max_ac_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets maximum AC brake current on FSIC inverter
@@ -278,7 +279,7 @@ void can_bus_send_FSIC_SetMaxAcCurrent(uint8_t inv_id, int16_t max_ac_current, C
  * @param max_ac_brake_current Maximum AC brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetMaxAcBrakeCurrent(uint8_t inv_id, int16_t max_ac_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxAcBrakeCurrent(uint8_t inv_id, int16_t max_ac_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets maximum DC current on FSIC inverter
@@ -286,7 +287,7 @@ void can_bus_send_FSIC_SetMaxAcBrakeCurrent(uint8_t inv_id, int16_t max_ac_brake
  * @param max_dc_current Maximum DC current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetMaxDcCurrent(uint8_t inv_id, int16_t max_dc_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxDcCurrent(uint8_t inv_id, int16_t max_dc_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets maximum DC brake current on FSIC inverter
@@ -294,7 +295,7 @@ void can_bus_send_FSIC_SetMaxDcCurrent(uint8_t inv_id, int16_t max_dc_current, C
  * @param max_dc_brake_current Maximum DC brake current value (int16_t)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake_current, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake_current, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sets drive enable on FSIC inverter
@@ -302,7 +303,7 @@ void can_bus_send_FSIC_SetMaxDcBrakeCurrent(uint8_t inv_id, int16_t max_dc_brake
  * @param drive_enable Drive enable value (uint8_t, 0 or 1)
  * @param hcan CAN handle
  */
-void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_HandleTypeDef *hcan);
+void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Sends powertrain bus message with R2D and ignition states
@@ -310,43 +311,42 @@ void can_bus_send_FSIC_SetDriveEnable(uint8_t inv_id, uint8_t drive_enable, CAN_
  * @param ignition Ignition state
  * @param hcan CAN handle
  */
-void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef *hcan);
+void can_bus_send_pwtbus_1(uint8_t r2d, uint8_t ignition, CAN_HandleTypeDef* hcan);
 
-void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeDef *hcan);
+void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeDef* hcan);
 
 /**
  * @brief Send brake pressure data to CAN bus
  * @param hcan CAN handle for the target bus
  * @param brake_pressure Brake pressure value (0-65535)
  */
-void can_bus_send_brake_pressure(CAN_HandleTypeDef *hcan, uint16_t brake_pressure);
+void can_bus_send_brake_pressure(CAN_HandleTypeDef* hcan, uint16_t brake_pressure);
 
 /* Autonomous bus functions */
 
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm_left, uint32_t rpm_right);
+void can_send_vcu_rpm(CAN_HandleTypeDef* hcan, int32_t erpm_left, int32_t erpm_right);
 
-void can_send_autonomous_HV_signal(CAN_HandleTypeDef *hcan, uint8_t hv_state, uint8_t brake_pressure_front);
-void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
+void can_send_autonomous_HV_signal(CAN_HandleTypeDef* hcan, uint8_t hv_state, uint8_t brake_pressure_front);
+void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef* hcan, uint8_t ignition_manual, uint8_t r2d_manual, uint8_t ignition_auto, uint8_t r2d_auto, uint8_t shutdown_signal, uint8_t vcu_state);
 
-void can_bus_read_ASDB(CAN_HandleTypeDef *hcan, AS_System_t *as_system, ACU_t *acu, RES_t *res);
+void can_bus_read_ASDB(CAN_HandleTypeDef* hcan, AS_System_t* as_system, ACU_t* acu, RES_t* res);
 
-void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res);
+void decode_autonomous_bus(const can_msg_t* msg, AS_System_t* as_system, ACU_t* acu, RES_t* res);
 
-void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t *bms, FSIC_t *fsic1, FSIC_t *fsic2, IVT_t *ivt);
+void decode_powertrain_bus(const can_msg_t* msg, BMSvars_t* bms, FSIC_t* fsic1, FSIC_t* fsic2, IVT_t* ivt);
 
-void send_vcu_0(CAN_HandleTypeDef *hcan, const FSIC_t *hv500);
-void send_vcu_1(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms);
-void send_vcu_2(CAN_HandleTypeDef *hcan, const FSIC_t *hv500);
-void send_vcu_3(CAN_HandleTypeDef *hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const FSIC_t *hv500);
-void send_vcu_4(CAN_HandleTypeDef *hcan, const ACU_t *acu);
-void send_all_vcu_frames(CAN_HandleTypeDef *hcan, const FSIC_t *hv500, const BMSvars_t *bms, const ACU_t *acu);
-void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
+void send_vcu_0(CAN_HandleTypeDef* hcan, const FSIC_t* hv500);
+void send_vcu_1(CAN_HandleTypeDef* hcan, const FSIC_t* hv500, const BMSvars_t* bms);
+void send_vcu_2(CAN_HandleTypeDef* hcan, const FSIC_t* hv500);
+void send_vcu_3(CAN_HandleTypeDef* hcan, bool r2d_manual, bool ignition_manual, bool r2d_auto, bool ignition_auto, const FSIC_t* hv500);
+void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu);
+void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const FSIC_t* hv500, const BMSvars_t* bms, const ACU_t* acu);
+void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 void can_bus_send_vcu_state(void);
 
 /**
  * @brief CAN mailbox used for transmitting messages
  */
 extern uint32_t TxMailbox;
-
 
 #endif /* CAN_UTILS_H */

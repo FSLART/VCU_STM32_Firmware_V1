@@ -36,6 +36,45 @@ typedef struct {
     uint16_t tolerance;  // Tolerance in ADC bits
 } APPS_Config_t;
 
+// Internal runtime state (sensor readings, calculations, error tracking)
+typedef struct {
+    uint16_t apps1_raw;         // Raw APPS1 value from ADC
+    uint16_t apps2_raw;         // Raw APPS2 value from ADC
+    uint16_t apps2_adjusted;    // APPS2 proportionally adjusted
+    uint16_t mean;              // Mean used for throttle calculation
+    uint16_t percentage;        // Throttle percentage (0-100)
+    uint16_t percentage_1000;   // Higher resolution throttle percentage (0-999)
+    uint16_t functional_range;  // Range between min and max thresholds
+    bool error;                   // Error flag (true if error detected)
+    APPS_ErrorType_t error_type;  // Current error type
+    uint32_t error_start_time;    // Time when error was first detected
+} APPS_State_t;
+
+// Calibration state (populated during APPS_Calibrate())
+typedef struct {
+    bool is_calibrating;           // Flag to indicate calibration in progress
+    bool is_complete;              // Flag to indicate calibration complete
+    uint32_t start_time;           // Start time of calibration
+    uint16_t apps1_min;            // Min value of APPS1 observed during calibration
+    uint16_t apps1_max;            // Max value of APPS1 observed during calibration
+    uint16_t apps2_min;            // Min value of APPS2 observed during calibration
+    uint16_t apps2_max;            // Max value of APPS2 observed during calibration
+    uint16_t sample_count;         // Number of samples collected during calibration
+    uint16_t suggested_min;        // Suggested min value for calibration
+    uint16_t suggested_max;        // Suggested max value for calibration
+    uint16_t suggested_tolerance;  // Suggested tolerance for calibration
+} APPS_CalibState_t;
+
+// Top-level instance: add this to Live Expressions in STM32CubeIDE for full visibility
+typedef struct {
+    APPS_Config_t config;      // Calibration limits and tolerance
+    APPS_State_t state;        // Runtime values: raws, mean, percentages, errors
+    APPS_CalibState_t calib;   // Calibration process data
+} APPS_Instance_t;
+
+// Global instance — accessible from anywhere that includes APPS.h
+extern APPS_Instance_t apps_data;
+
 // Core functions
 void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance);
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);

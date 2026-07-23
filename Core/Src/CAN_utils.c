@@ -241,6 +241,12 @@ void can_bus_send_bms_close_contactors(uint8_t close_contactors, CAN_HandleTypeD
 */
 
 void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, FSIC_t* fsic2, IVT_t* ivt) {
+    /* Powertrain DBC IDs are all 11-bit standard. Reject extended frames
+       for the same reason as decode_autonomous_bus — see comment there. */
+    if (msg->is_extended) {
+        return;
+    }
+
     const uint8_t *data = msg->data;
 
     switch (msg->id) {
@@ -312,6 +318,16 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             fsic1->Actual_TempController = m.inv1_actual_temp_controller;
             fsic1->Actual_TempMotor = m.inv1_actual_temp_motor;
             fsic1->Actual_FaultCode = m.inv1_actual_fault_code;
+            
+            /* Forward to Data bus via queue */
+            can_msg_t tx_msg1;
+            tx_msg1.id = FSIC_INV1_TEMPERATURES_FRAME_ID;
+            tx_msg1.dlc = msg->dlc;
+            tx_msg1.bus = CAN_BUS_1;
+            tx_msg1.is_extended = 0;
+            tx_msg1.timestamp = HAL_GetTick();
+            memcpy(tx_msg1.data, data, msg->dlc);
+            can_tx_enqueue(&tx_msg1);
             break;
         }
 
@@ -323,6 +339,16 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             fsic2->Actual_TempController = m.inv2_actual_temp_controller;
             fsic2->Actual_TempMotor = m.inv2_actual_temp_motor;
             fsic2->Actual_FaultCode = m.inv2_actual_fault_code;
+            
+            /* Forward to Data bus via queue */
+            can_msg_t tx_msg2;
+            tx_msg2.id = FSIC_INV2_TEMPERATURES_FRAME_ID;
+            tx_msg2.dlc = msg->dlc;
+            tx_msg2.bus = CAN_BUS_1;
+            tx_msg2.is_extended = 0;
+            tx_msg2.timestamp = HAL_GetTick();
+            memcpy(tx_msg2.data, data, msg->dlc);
+            can_tx_enqueue(&tx_msg2);
             break;
         }
 
@@ -480,21 +506,21 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
  * @param state The state of the autonomous system
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
-void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, uint32_t rpm_left, uint32_t rpm_right) {
-    // Scale down the RPM value
-    rpm_left = rpm_left / 10;
-    rpm_right = rpm_right / 10;
+void can_send_vcu_rpm(CAN_HandleTypeDef *hcan, int32_t erpm_left, int32_t erpm_right) {
+    // Scale down the ERPM value to mechanical RPM
+    int32_t rpm_left = erpm_left / MOTOR_POLE_PAIRS;
+    int32_t rpm_right = erpm_right / MOTOR_POLE_PAIRS;
 
     // Clamp to uint16_t range for safety
     if (rpm_left > 65535) {
         rpm_left = 65535;
-    } else if (rpm_left <= 0) {
+    } else if (rpm_left < 0) {
         rpm_left = 0;
     }
     
     if (rpm_right > 65535) {
         rpm_right = 65535;
-    } else if (rpm_right <= 0) {
+    } else if (rpm_right < 0) {
         rpm_right = 0;
     }
 
@@ -561,6 +587,15 @@ void can_send_vcu_ign_r2d_signals(CAN_HandleTypeDef *hcan, uint8_t ignition_manu
  * @param hcan CAN handle for the VCU bus (CAN3)
  */
 void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *acu, RES_t *res) {
+    /* Every frame ID in the autonomous DBC is an 11-bit standard ID. An
+       extended (29-bit) frame is either foreign traffic or a corrupted
+       capture, and msg->id for it must NOT be compared against the
+       standard-ID defines below (id-space overlap would decode it as the
+       wrong signal with the wrong payload). Drop it before the switch. */
+    if (msg->is_extended) {
+        return;
+    }
+
     const uint8_t *data = msg->data;
     switch (msg->id) {
         case AUTONOMOUS_T26_ACU_FRAME_ID: {
