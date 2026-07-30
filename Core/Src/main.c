@@ -39,7 +39,7 @@
 #define CALIBRATE_APPS 0
 
 /*----CAN SAFETY TIMEOUTS----*/
-#define MAX_APPS_TIMEOUT_MS 50  // TIMEOUT for APPS loss of communication
+#define MAX_APPS_TIMEOUT_MS 250  // TIMEOUT for APPS loss of communication
 // UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
 // #define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
 /*---------------------------*/
