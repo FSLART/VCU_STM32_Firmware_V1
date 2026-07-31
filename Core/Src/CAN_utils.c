@@ -481,16 +481,22 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             }
             vcu.ignition_switch_signal = vcu.ignition_toggle_signal;
 
-            // Process r2d as a momentary button with 50ms debounce (toggle on falling edge / button release)
+            // Process r2d as a momentary button with 50ms debounce (toggle on falling edge / button release).
+            // Entering R2D (any state other than STATE_READY_MANUAL) only toggles on if the brake
+            // is held at the same instant as the press - this is the actual FSG plausibility
+            // requirement. Leaving R2D (already in STATE_READY_MANUAL) only needs the press.
             if (db_msg.r2d_button_raw != vcu.r2d_button_prev && (current_time - vcu.r2d_last_toggle_time > 50)) {
                 if (!db_msg.r2d_button_raw) {
-                    vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
+                    bool brake_ok = Bypass_brake_pressure ||
+                                    ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0));
+                    if (current_state == STATE_READY_MANUAL || brake_ok) {
+                        vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
+                    }
                 }
                 vcu.r2d_button_prev = db_msg.r2d_button_raw;
                 vcu.r2d_last_toggle_time = current_time;
             }
-            vcu.r2d_button_signal = vcu.r2d_toggle_signal;
-            
+
             break;
         }
         default:

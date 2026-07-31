@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "APPS.h"
 #include "can_queue.h"
 #include "fsic.h"
 #include "main.h"
@@ -14,7 +15,15 @@ extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
 extern CAN_HandleTypeDef hcan3;
 
+/* Latest APPS result, computed in main.c - needed here for the R2D brake-plausibility gate */
+extern APPS_Result_t result;
+
 #define MOTOR_POLE_PAIRS 4
+
+/* BYPASS VARIABLES */
+#define Bypass_brake_pressure 0
+
+#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
 typedef struct {
     uint32_t id;

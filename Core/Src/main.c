@@ -56,10 +56,9 @@
 #define CAN_AUTONOMOUS &hcan3
 
 /* BYPASS VARIABLES*/
-#define Bypass_brake_pressure 0
+// Bypass_brake_pressure and BRAKE_PRESSURE_THRESHOLD now live in CAN_utils.h -
+// the R2D brake gate is applied in CAN_utils.c, not here.
 #define Bypass_precharge 0
-
-#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
 #define SHUTDOWN_DEBOUNCE_TIME_MS 50  // Shutdown signal debounce time in milliseconds
 #define IGNITION_DEBOUNCE_TIME_MS 50  // Ignition switch debounce time in milliseconds
@@ -723,7 +722,8 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0)))) {
+            } else if (vcu.r2d_toggle_signal) {
+                // Brake-plausibility gate already applied in CAN_utils.c when the toggle flips
                 current_state = STATE_READY_MANUAL;
             }
             break;
