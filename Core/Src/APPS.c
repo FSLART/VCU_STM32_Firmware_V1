@@ -28,7 +28,7 @@
 #define APPS_MIN_VALID_VALUE 50       // Minimum valid sensor reading (detect shorts to GND)
 #define APPS_MAX_VALID_VALUE 4050     // Maximum valid sensor reading (detect shorts to VCC)
 #define APPS_SHORT_THRESHOLD 10       // Threshold for detecting sensors shorted together
-#define APPS_TIMEOUT_MS 100           // Error timeout in milliseconds
+#define APPS_TIMEOUT_MS 200           // Error timeout in milliseconds
 #define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
 #define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
@@ -55,13 +55,13 @@ static inline void calculate_functional_range(void);
 /**
  * @brief Calculates the effective functional range of the sensors
  *
- * This range is used for mapping sensor values to throttle percentages
- * and factors in the tolerance values.
+ * This range is used for mapping sensor values to throttle percentages.
+ * Tolerance is NOT factored in here - it's only a plausibility margin
+ * for the APPS1/APPS2 disagreement check, not a deadzone on the pedal
+ * travel itself. min_value/max_value are the real 0%/100% points.
  */
 static inline void calculate_functional_range(void) {
-    uint16_t min_threshold = apps_data.config.min_value + apps_data.config.tolerance;
-    uint16_t max_threshold = apps_data.config.max_value - apps_data.config.tolerance;
-    apps_data.state.functional_range = max_threshold - min_threshold;
+    apps_data.state.functional_range = apps_data.config.max_value - apps_data.config.min_value;
 }
 
 /**
@@ -129,7 +129,15 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     
     if (!result.error) {
 #else
-    // NORMAL MODE: Check for errors with timeout
+    	// Precalculate thresholds once - the real calibrated 0%/100% points.
+    	// Tolerance is deliberately NOT applied here (see calculate_functional_range).
+		uint16_t min_threshold = apps_data.config.min_value;
+		uint16_t max_threshold = apps_data.config.max_value;
+
+		// Make sure functional range is up to date
+		calculate_functional_range();
+
+    	// NORMAL MODE: Check for errors with timeout
     if (check_error_timeout(apps1, apps_data.state.apps2_adjusted)) {
         // Error condition - zero throttle
         apps_data.state.percentage = 0;
@@ -143,14 +151,7 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         apps_data.state.mean = (apps1 + apps_data.state.apps2_adjusted) >> 1;
 #endif
 
-        // Precalculate thresholds once
-        uint16_t min_threshold = apps_data.config.min_value + apps_data.config.tolerance;
-        // uint16_t min_threshold = apps_data.config.min_value;
-        uint16_t max_threshold = apps_data.config.max_value - apps_data.config.tolerance;
-        // uint16_t max_threshold = apps_data.config.max_value;
 
-        // Make sure functional range is up to date
-        calculate_functional_range();
 
         // Determine throttle percentage based on position
         if (apps_data.state.mean <= min_threshold) {
@@ -176,6 +177,8 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
             } else if (apps_data.state.percentage_1000 < 0) {
                 apps_data.state.percentage_1000 = 0;
             }
+
+
 
             if (apps_data.state.percentage > APPS_PERCENTAGE_MAX) {
                 apps_data.state.percentage = APPS_PERCENTAGE_MAX;
@@ -215,7 +218,7 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
 static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted) {
     // Check if values differ by more than 10%
 
-    uint16_t max_difference = apps_data.state.functional_range / 10;
+    uint16_t max_difference = apps_data.config.tolerance;
     if (abs((int)apps1 - (int)apps2_adjusted) > max_difference) {
         return APPS_ERROR_DISAGREEMENT;
     }

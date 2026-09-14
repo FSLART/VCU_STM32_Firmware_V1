@@ -29,8 +29,8 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1118U  // APPS1 ADC @ 0% throttle (measured)
-#define __APPS_MAX_BITS 1349U  // APPS1 ADC @ 100% throttle (measured)
+#define __APPS_MIN_BITS 1194U  // APPS1 ADC @ 0% throttle (measured)
+#define __APPS_MAX_BITS 1360U  // APPS1 ADC @ 100% throttle (measured)
 #define __APPS_TOLERANCE 20U   // ~9% of range (231 bits), covers sensor noise
 #define __APPS_DELTA 339U      // usado para normalizar o valor do APPS
 
@@ -39,7 +39,7 @@
 #define CALIBRATE_APPS 0
 
 /*----CAN SAFETY TIMEOUTS----*/
-#define MAX_APPS_TIMEOUT_MS 50  // TIMEOUT for APPS loss of communication
+#define MAX_APPS_TIMEOUT_MS 250  // TIMEOUT for APPS loss of communication
 // UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
 // #define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
 /*---------------------------*/
@@ -56,10 +56,9 @@
 #define CAN_AUTONOMOUS &hcan3
 
 /* BYPASS VARIABLES*/
-#define Bypass_brake_pressure 0
+// Bypass_brake_pressure and BRAKE_PRESSURE_THRESHOLD now live in CAN_utils.h -
+// the R2D brake gate is applied in CAN_utils.c, not here.
 #define Bypass_precharge 0
-
-#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
 #define SHUTDOWN_DEBOUNCE_TIME_MS 50  // Shutdown signal debounce time in milliseconds
 #define IGNITION_DEBOUNCE_TIME_MS 50  // Ignition switch debounce time in milliseconds
@@ -723,7 +722,8 @@ void UpdateState(void) {
                 if (!vcu.shutdown_signal) {
                     current_state = STATE_SHUTDOWN;
                 }
-            } else if (vcu.r2d_toggle_signal && (Bypass_brake_pressure || ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0)))) {
+            } else if (vcu.r2d_toggle_signal) {
+                // Brake-plausibility gate already applied in CAN_utils.c when the toggle flips
                 current_state = STATE_READY_MANUAL;
             }
             break;
@@ -1198,6 +1198,21 @@ void execute_100ms_tasks(void) {
                                  (current_state == STATE_READY_AUTONOMOUS),  // auto R2D
                                  vcu.shutdown_signal,                        // shutdown signal
                                  (uint8_t)current_state);                    // VCU state
+
+    // Filler frame on the IVT's own ID (0x524 / IVT_Msg_Result_U3) so the powertrain bus
+    // never goes silent on this ID if the IVT drops out - some downstream board faults on
+    // missing traffic there, not on payload content. Intentional ID reuse; sent slow (400ms)
+    // to limit how often it collides with the real IVT frames while the IVT is alive.
+    static uint32_t last_ivt_heartbeat_time = 0;
+    uint32_t current_ivt_heartbeat_time = HAL_GetTick();
+    /*if (current_ivt_heartbeat_time - last_ivt_heartbeat_time >= 400) {
+        uint8_t ivt_heartbeat_data[1] = {0x00};
+        can_bus_send(&hcan2, POWERTRAIN_T26_IVT_MSG_RESULT_U3_FRAME_ID, ivt_heartbeat_data, 1);
+        last_ivt_heartbeat_time = current_ivt_heartbeat_time;
+    }*/
+    uint8_t ivt_heartbeat_data[1] = {0x00};
+    can_bus_send(&hcan2, POWERTRAIN_T26_IVT_MSG_RESULT_U3_FRAME_ID, ivt_heartbeat_data, 1);
+    last_ivt_heartbeat_time = current_ivt_heartbeat_time;
 
     // Send VCU telemetry frames in rotation (one different frame each time)
     static uint8_t frame_index = 0;

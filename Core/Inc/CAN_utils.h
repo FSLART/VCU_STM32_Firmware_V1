@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 
+#include "APPS.h"
 #include "can_queue.h"
 #include "fsic.h"
 #include "main.h"
@@ -14,7 +15,15 @@ extern CAN_HandleTypeDef hcan1;
 extern CAN_HandleTypeDef hcan2;
 extern CAN_HandleTypeDef hcan3;
 
+/* Latest APPS result, computed in main.c - needed here for the R2D brake-plausibility gate */
+extern APPS_Result_t result;
+
 #define MOTOR_POLE_PAIRS 4
+
+/* BYPASS VARIABLES */
+#define Bypass_brake_pressure 0
+
+#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 
 typedef struct {
     uint32_t id;
@@ -203,7 +212,7 @@ extern VCU_Signals_t vcu;
 
 // Variables
 // APPS Loss of comms tick
-extern volatile uint32_t last_apps_can_rx_time;  // keeps track of the last time a valid 0x710 message came through
+extern volatile uint32_t last_apps_can_rx_time;  // keeps track of the last time a valid 0x50 message came through
 extern volatile uint32_t last_acu_can_rx_time;
 extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 extern volatile uint8_t debug_res_signal;
