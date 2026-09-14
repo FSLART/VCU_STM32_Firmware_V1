@@ -30,10 +30,11 @@ VCU_Signals_t vcu = {
 
 //Variables
 //APPS Loss of comms tick
-volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x50 message came through
 volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 volatile uint8_t debug_res_signal = 0;
+volatile uint8_t debug_ignition_switch_raw = 0; // Live Expressions watch: mirrors db_msg.ignition_switch_raw
 
 #pragma region Basic CAN Functions
 
@@ -470,10 +471,11 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             powertrain_t26_dash_board_init(&db_msg);
             powertrain_t26_dash_board_unpack(&db_msg, data, msg->dlc);
             uint32_t current_time = HAL_GetTick();
+            debug_ignition_switch_raw = db_msg.ignition_switch_raw;
 
             // Process ignition as a momentary button with 50ms debounce (toggle on falling edge / button release)
             if (db_msg.ignition_switch_raw != vcu.ignition_button_prev && (current_time - vcu.ignition_last_toggle_time > 50)) {
-                if (!db_msg.ignition_switch_raw) {
+                if (!db_msg.ignition_switch_raw && vcu.shutdown_signal == 1) {
                     vcu.ignition_toggle_signal = !vcu.ignition_toggle_signal;
                 }
                 vcu.ignition_button_prev = db_msg.ignition_switch_raw;

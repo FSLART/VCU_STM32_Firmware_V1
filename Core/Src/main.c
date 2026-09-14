@@ -1199,6 +1199,21 @@ void execute_100ms_tasks(void) {
                                  vcu.shutdown_signal,                        // shutdown signal
                                  (uint8_t)current_state);                    // VCU state
 
+    // Filler frame on the IVT's own ID (0x524 / IVT_Msg_Result_U3) so the powertrain bus
+    // never goes silent on this ID if the IVT drops out - some downstream board faults on
+    // missing traffic there, not on payload content. Intentional ID reuse; sent slow (400ms)
+    // to limit how often it collides with the real IVT frames while the IVT is alive.
+    static uint32_t last_ivt_heartbeat_time = 0;
+    uint32_t current_ivt_heartbeat_time = HAL_GetTick();
+    /*if (current_ivt_heartbeat_time - last_ivt_heartbeat_time >= 400) {
+        uint8_t ivt_heartbeat_data[1] = {0x00};
+        can_bus_send(&hcan2, POWERTRAIN_T26_IVT_MSG_RESULT_U3_FRAME_ID, ivt_heartbeat_data, 1);
+        last_ivt_heartbeat_time = current_ivt_heartbeat_time;
+    }*/
+    uint8_t ivt_heartbeat_data[1] = {0x00};
+    can_bus_send(&hcan2, POWERTRAIN_T26_IVT_MSG_RESULT_U3_FRAME_ID, ivt_heartbeat_data, 1);
+    last_ivt_heartbeat_time = current_ivt_heartbeat_time;
+
     // Send VCU telemetry frames in rotation (one different frame each time)
     static uint8_t frame_index = 0;
 
