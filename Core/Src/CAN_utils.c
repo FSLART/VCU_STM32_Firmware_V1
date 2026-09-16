@@ -35,12 +35,6 @@ volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 volatile uint8_t debug_res_signal = 0;
 volatile uint8_t debug_ignition_switch_raw = 0; // Live Expressions watch: mirrors db_msg.ignition_switch_raw
-// Live Expressions watch: APPS CAN frame period (ms, from ISR RX timestamp). Set debug_apps_dt_reset = 1 to clear min/max.
-volatile uint32_t debug_apps_dt_ms = 0;      // Delta between the last two APPS frames
-volatile uint32_t debug_apps_dt_min_ms = 0;  // Smallest delta seen since reset
-volatile uint32_t debug_apps_dt_max_ms = 0;  // Largest delta seen since reset
-volatile uint32_t debug_apps_rx_count = 0;   // APPS frames received since reset
-volatile uint8_t debug_apps_dt_reset = 0;
 
 #pragma region Basic CAN Functions
 
@@ -470,23 +464,20 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             __enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
             // APPS frame period stats for Live Expressions
-            {
-                static uint32_t prev_apps_rx_timestamp = 0;
-                if (debug_apps_dt_reset) {
-                    debug_apps_dt_reset = 0;
-                    debug_apps_rx_count = 0;
-                    debug_apps_dt_min_ms = 0;
-                    debug_apps_dt_max_ms = 0;
-                }
-                if (debug_apps_rx_count > 0) {
-                    uint32_t dt = msg->timestamp - prev_apps_rx_timestamp;
-                    debug_apps_dt_ms = dt;
-                    if (debug_apps_rx_count == 1 || dt < debug_apps_dt_min_ms) debug_apps_dt_min_ms = dt;
-                    if (dt > debug_apps_dt_max_ms) debug_apps_dt_max_ms = dt;
-                }
-                prev_apps_rx_timestamp = msg->timestamp;
-                debug_apps_rx_count++;
+            if (vcu.apps_dt_reset) {
+                vcu.apps_dt_reset = false;
+                vcu.apps_rx_count = 0;
+                vcu.apps_dt_min_ms = 0;
+                vcu.apps_dt_max_ms = 0;
             }
+            if (vcu.apps_rx_count > 0) {
+                uint32_t dt = msg->timestamp - vcu.apps_prev_rx_timestamp;
+                vcu.apps_dt_ms = dt;
+                if (vcu.apps_rx_count == 1 || dt < vcu.apps_dt_min_ms) vcu.apps_dt_min_ms = dt;
+                if (dt > vcu.apps_dt_max_ms) vcu.apps_dt_max_ms = dt;
+            }
+            vcu.apps_prev_rx_timestamp = msg->timestamp;
+            vcu.apps_rx_count++;
 
             last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
             break;
@@ -515,7 +506,7 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             if (db_msg.r2d_button_raw != vcu.r2d_button_prev && (current_time - vcu.r2d_last_toggle_time > 50)) {
                 if (!db_msg.r2d_button_raw) {
                     bool brake_ok = Bypass_brake_pressure ||
-                                    ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0));
+                                    ((vcu.brake_pressure >= BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0));
                     if (current_state == STATE_READY_MANUAL || brake_ok) {
                         vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
                     }
@@ -699,6 +690,13 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
             uint16_t raw_pressure = (data[1] << 8) | data[0];
             uint8_t resulting_pressure = raw_pressure * 0.1;
             vcu.brake_pressure = resulting_pressure;
+
+            // Raw frame debug for Live Expressions
+            vcu.brake_raw = raw_pressure;
+            vcu.brake_dlc = msg->dlc;
+            memcpy(vcu.brake_raw_data, data, 8);
+            vcu.brake_rx_count++;
+            vcu.brake_last_rx_time = msg->timestamp;
             break;
         }
         default:

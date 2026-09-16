@@ -21,9 +21,9 @@ extern APPS_Result_t result;
 #define MOTOR_POLE_PAIRS 4
 
 /* BYPASS VARIABLES */
-#define Bypass_brake_pressure 1  // TEMP: bypass brake check for R2D - revert to 0 before driving
+#define Bypass_brake_pressure 0
 
-#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
+#define BRAKE_PRESSURE_THRESHOLD 2  // Minimum brake pressure (bar) required for R2D (rest reads ~1-2 bar)
 
 typedef struct {
     uint32_t id;
@@ -205,6 +205,21 @@ typedef struct {
     uint32_t emergency_sound_start_time;   // Timestamp when emergency sound started
     uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
     bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
+
+    // APPS CAN frame period stats (ms, from ISR RX timestamp) - Live Expressions debug
+    uint32_t apps_dt_ms;                   // Delta between the last two APPS frames
+    uint32_t apps_dt_min_ms;               // Smallest delta seen since reset
+    uint32_t apps_dt_max_ms;               // Largest delta seen since reset
+    uint32_t apps_rx_count;                // APPS frames received since reset
+    uint32_t apps_prev_rx_timestamp;       // RX timestamp of the previous APPS frame
+    bool apps_dt_reset;                    // Set to 1 to clear min/max/count
+
+    // Brake pressure frame (0x710, CAN3) raw data - Live Expressions debug
+    uint16_t brake_raw;                    // (data[1] << 8) | data[0], before 0.1 scaling
+    uint8_t brake_raw_data[8];             // Full payload as received
+    uint8_t brake_dlc;                     // DLC of the last frame
+    uint32_t brake_rx_count;               // 0x710 frames received
+    uint32_t brake_last_rx_time;           // HAL tick of the last 0x710 frame
 } VCU_Signals_t;
 
 // VCU signals (defined in CAN_utils.c)
