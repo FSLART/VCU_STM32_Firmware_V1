@@ -21,7 +21,7 @@ extern APPS_Result_t result;
 #define MOTOR_POLE_PAIRS 4
 
 /* BYPASS VARIABLES */
-#define Bypass_brake_pressure 0
+#define Bypass_brake_pressure 1  // TEMP: bypass brake check for R2D - revert to 0 before driving
 
 #define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
 

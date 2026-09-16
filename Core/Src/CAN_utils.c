@@ -35,6 +35,12 @@ volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 volatile uint8_t debug_res_signal = 0;
 volatile uint8_t debug_ignition_switch_raw = 0; // Live Expressions watch: mirrors db_msg.ignition_switch_raw
+// Live Expressions watch: APPS CAN frame period (ms, from ISR RX timestamp). Set debug_apps_dt_reset = 1 to clear min/max.
+volatile uint32_t debug_apps_dt_ms = 0;      // Delta between the last two APPS frames
+volatile uint32_t debug_apps_dt_min_ms = 0;  // Smallest delta seen since reset
+volatile uint32_t debug_apps_dt_max_ms = 0;  // Largest delta seen since reset
+volatile uint32_t debug_apps_rx_count = 0;   // APPS frames received since reset
+volatile uint8_t debug_apps_dt_reset = 0;
 
 #pragma region Basic CAN Functions
 
@@ -462,6 +468,25 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             ADC2_APPS[1] = (uint16_t)apps_msg.apps2 / 10;
 #endif
             __enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
+
+            // APPS frame period stats for Live Expressions
+            {
+                static uint32_t prev_apps_rx_timestamp = 0;
+                if (debug_apps_dt_reset) {
+                    debug_apps_dt_reset = 0;
+                    debug_apps_rx_count = 0;
+                    debug_apps_dt_min_ms = 0;
+                    debug_apps_dt_max_ms = 0;
+                }
+                if (debug_apps_rx_count > 0) {
+                    uint32_t dt = msg->timestamp - prev_apps_rx_timestamp;
+                    debug_apps_dt_ms = dt;
+                    if (debug_apps_rx_count == 1 || dt < debug_apps_dt_min_ms) debug_apps_dt_min_ms = dt;
+                    if (dt > debug_apps_dt_max_ms) debug_apps_dt_max_ms = dt;
+                }
+                prev_apps_rx_timestamp = msg->timestamp;
+                debug_apps_rx_count++;
+            }
 
             last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
             break;
