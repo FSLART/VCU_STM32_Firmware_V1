@@ -24,6 +24,9 @@
 #if (REGEN_MAX_1000 < 0) || (REGEN_MAX_1000 > 1000)
 #error "regen.h: REGEN_MAX_1000 must be 0..1000"
 #endif
+#if (REGEN_RAMP_UP_MS <= 0) || (REGEN_RAMP_DOWN_MS <= 0)
+#error "regen.h: REGEN_RAMP_UP_MS and REGEN_RAMP_DOWN_MS must be above 0"
+#endif
 #if (REGEN_DC_VOLTAGE_CUTOFF_V > 0) && (REGEN_DC_VOLTAGE_FADE_START_V >= REGEN_DC_VOLTAGE_CUTOFF_V)
 #error "regen.h: REGEN_DC_VOLTAGE_FADE_START_V must be below REGEN_DC_VOLTAGE_CUTOFF_V"
 #endif
@@ -150,6 +153,10 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms) {
     regen.last_update_ms = now_ms;
     regen.first_update = false;
 
+    // Vehicle speed - always calculated, the torque ramp uses it even with regen disabled
+    regen.motor_rpm = slowest_motor_rpm(in->erpm_left, in->erpm_right);
+    regen.vehicle_speed_kmh = speed_kmh_from_motor_rpm(regen.motor_rpm);
+
 #if !REGEN_ENABLE
     // Regen off: the pedal drives exactly like before
     regen.regen_target_1000 = 0;
@@ -168,8 +175,6 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms) {
     }
 
     /* --- Factors --- */
-    regen.motor_rpm = slowest_motor_rpm(in->erpm_left, in->erpm_right);
-    regen.vehicle_speed_kmh = speed_kmh_from_motor_rpm(regen.motor_rpm);
     regen.coast_pedal_1000 = coast_pedal_at_speed(regen.vehicle_speed_kmh);
     regen.pedal_factor_1000 = pedal_regen_factor(in->pedal_1000, regen.coast_pedal_1000);
     regen.speed_factor_1000 = ramp_factor(regen.vehicle_speed_kmh, REGEN_SPEED_MIN_KMH, REGEN_SPEED_FULL_KMH);
@@ -193,7 +198,8 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms) {
     regen.regen_target_1000 = (uint16_t)target;
 
     /* --- Ramp: gentle build-in, fast release --- */
-    uint32_t rate = (target > regen.regen_cmd_1000) ? REGEN_RAMP_UP_PER_S : REGEN_RAMP_DOWN_PER_S;
+    uint32_t ramp_ms = (target > regen.regen_cmd_1000) ? REGEN_RAMP_UP_MS : REGEN_RAMP_DOWN_MS;
+    uint32_t rate = (uint32_t)REGEN_MAX_1000 * 1000u / ramp_ms;  // per mille per second
     regen.regen_cmd_1000 = rate_limit(regen.regen_cmd_1000, regen.regen_target_1000, rate, dt_ms);
 
     /* --- Drive torque only once regen has fully released --- */
@@ -215,15 +221,15 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms) {
     }
 }
 
-void regen_send_to_inverters(CAN_HandleTypeDef *hcan, uint32_t now_ms) {
+void regen_send_to_inverters(CAN_HandleTypeDef *hcan, uint16_t drive_1000, uint32_t now_ms) {
     // One control mode per inverter per cycle - the inverter follows the last command
     // it received, so sending both would make it switch modes every cycle.
     if (regen.regen_cmd_1000 > 0) {
         can_bus_send_FSIC_SetRelBrakeCurrent(1, (int16_t)regen.regen_cmd_1000, hcan);
         can_bus_send_FSIC_SetRelBrakeCurrent(2, (int16_t)regen.regen_cmd_1000, hcan);
     } else {
-        can_bus_send_FSIC_SetRelCurrent(1, (int16_t)regen.drive_cmd_1000, hcan);
-        can_bus_send_FSIC_SetRelCurrent(2, (int16_t)regen.drive_cmd_1000, hcan);
+        can_bus_send_FSIC_SetRelCurrent(1, (int16_t)drive_1000, hcan);
+        can_bus_send_FSIC_SetRelCurrent(2, (int16_t)drive_1000, hcan);
     }
 
 #if REGEN_ENABLE && REGEN_SEND_INVERTER_LIMITS

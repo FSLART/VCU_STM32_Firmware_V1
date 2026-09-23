@@ -34,6 +34,12 @@
 
 #define APPS_SINGLE_SENSOR_TEST 0     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
 
+// Hysteresis on the pedal mean (5..10 bits; 1 bit ~= 0.6% of pedal travel).
+// The throttle output only changes once the mean moves more than this many bits
+// away from the last accepted value. Within this many bits of the 0% point the
+// output is forced to exactly 0 so a released pedal always reads 0.
+#define APPS_HYSTERESIS_BITS 5
+
 /* ---------------------- Global Debug Instance ---------------------- */
 /**
  * Single global instance grouping configuration, runtime state, and
@@ -87,6 +93,7 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
     apps_data.state.apps2_raw = 0;
     apps_data.state.apps2_adjusted = 0;
     apps_data.state.mean = 0;
+    apps_data.state.mean_held = min_value;
     apps_data.state.percentage = 0;
     apps_data.state.percentage_1000 = 0;
 }
@@ -143,6 +150,7 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         apps_data.state.percentage = 0;
         apps_data.state.percentage_1000 = 0;
         apps_data.state.mean = 0;
+        apps_data.state.mean_held = min_threshold;  // Restart hysteresis from 0% after the error
         result.error = true;
         result.error_type = apps_data.state.error_type;
     } else {
@@ -151,24 +159,33 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         apps_data.state.mean = (apps1 + apps_data.state.apps2_adjusted) >> 1;
 #endif
 
+        // Hysteresis: hold the pedal value until it moves more than APPS_HYSTERESIS_BITS.
+        // Near 0% force exactly 0; at 100% follow immediately so full pedal is always reached.
+        int32_t pedal_change = (int32_t)apps_data.state.mean - (int32_t)apps_data.state.mean_held;
+        if (apps_data.state.mean <= min_threshold + APPS_HYSTERESIS_BITS) {
+            apps_data.state.mean_held = min_threshold;
+        } else if (apps_data.state.mean >= max_threshold) {
+            apps_data.state.mean_held = max_threshold;
+        } else if (abs(pedal_change) > APPS_HYSTERESIS_BITS) {
+            apps_data.state.mean_held = apps_data.state.mean;
+        }
 
-
-        // Determine throttle percentage based on position
-        if (apps_data.state.mean <= min_threshold) {
+        // Determine throttle percentage based on position (after hysteresis)
+        if (apps_data.state.mean_held <= min_threshold) {
             // Below minimum threshold
             apps_data.state.percentage = 0;
             apps_data.state.percentage_1000 = 0;
-        } else if (apps_data.state.mean >= max_threshold) {
+        } else if (apps_data.state.mean_held >= max_threshold) {
             // Above maximum threshold
             apps_data.state.percentage = APPS_PERCENTAGE_MAX;
             apps_data.state.percentage_1000 = APPS_PERCENTAGE_1000_MAX;
         } else {
             // In the active range - map the value
-            uint32_t numerator = (uint32_t)(apps_data.state.mean - min_threshold) * APPS_PERCENTAGE_MAX;
+            uint32_t numerator = (uint32_t)(apps_data.state.mean_held - min_threshold) * APPS_PERCENTAGE_MAX;
             apps_data.state.percentage = numerator / apps_data.state.functional_range;
 
             // Calculate higher resolution percentage
-            numerator = (uint32_t)(apps_data.state.mean - min_threshold) * APPS_PERCENTAGE_1000_MAX;
+            numerator = (uint32_t)(apps_data.state.mean_held - min_threshold) * APPS_PERCENTAGE_1000_MAX;
             apps_data.state.percentage_1000 = numerator / apps_data.state.functional_range;
 
             // Apply bounds checking for calculated percentages

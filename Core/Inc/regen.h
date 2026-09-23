@@ -47,6 +47,7 @@
  *   5. Output - exactly one command per cycle and per inverter:
  *        regen > 0  -> SetRelBrakeCurrent(regen)   (0..1000 = % of inverter max brake current)
  *        otherwise  -> SetRelCurrent(drive)        (0..1000 = % of inverter max current)
+ *      The drive value passes through the torque ramp (torque_ramp.h) before it is sent.
  *
  * TUNING
  *   Everything that changes the feel is a #define below. The absolute regen strength
@@ -73,9 +74,9 @@
 /* ============================ STRENGTH ============================== */
 
 // Maximum regen, in per mille of the inverter's configured max brake current.
-// 1000 = 100.0% (steps of 0.1%). 250 = full lift-off asks for 25% of the brake
-// current set in the inverters.
-#define REGEN_MAX_1000 250
+// 1000 = 100.0% (steps of 0.1%). The VCU never sends amps: with 18 A configured in
+// the inverters, 980 = full lift-off asks for 98% of 18 A = ~17.6 A.
+#define REGEN_MAX_1000 980
 
 /* ============================ PEDAL MAP ============================= */
 // Pedal positions in per mille of travel (APPS percentage_1000).
@@ -103,10 +104,11 @@
 #define REGEN_SPEED_FULL_KMH  15   // Full regen above this speed (km/h)
 
 /* =============================== RAMPS ============================== */
-// Maximum change of the regen command, in per mille per second.
+// Time for the regen command to go between 0 and REGEN_MAX_1000. Given as times so
+// the feel stays the same when REGEN_MAX_1000 changes.
 
-#define REGEN_RAMP_UP_PER_S    1000  // Build-in: 0 -> 250 takes 0.25 s
-#define REGEN_RAMP_DOWN_PER_S  5000  // Release:  250 -> 0 takes 0.05 s
+#define REGEN_RAMP_UP_MS    250  // Build-in: 0 -> full regen
+#define REGEN_RAMP_DOWN_MS   50  // Release:  full regen -> 0 (drive waits for this)
 
 /* ========================= DC VOLTAGE LIMIT ========================= */
 // Regen charges the pack. Near max pack voltage (full battery) regen is faded out
@@ -167,7 +169,7 @@ typedef struct {
 
     uint16_t regen_target_1000;   // Regen wanted this cycle, before the ramp
     uint16_t regen_cmd_1000;      // Regen actually sent (ramped) -> SetRelBrakeCurrent
-    uint16_t drive_cmd_1000;      // Drive actually sent          -> SetRelCurrent
+    uint16_t drive_cmd_1000;      // Drive requested (before the torque ramp) -> SetRelCurrent
 
     regen_status_t status;        // What regen is doing and why
 
@@ -194,9 +196,10 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms);
 
 /**
  * @brief Send the current commands to both inverters (one mode per inverter)
- * @param hcan   Powertrain CAN handle
- * @param now_ms HAL_GetTick(), used to rate-limit the brake-limit frames
+ * @param hcan       Powertrain CAN handle
+ * @param drive_1000 Drive torque to send when not regenerating (after the torque ramp)
+ * @param now_ms     HAL_GetTick(), used to rate-limit the brake-limit frames
  */
-void regen_send_to_inverters(CAN_HandleTypeDef *hcan, uint32_t now_ms);
+void regen_send_to_inverters(CAN_HandleTypeDef *hcan, uint16_t drive_1000, uint32_t now_ms);
 
 #endif  // REGEN_H
