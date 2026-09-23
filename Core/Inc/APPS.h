@@ -41,8 +41,12 @@ typedef struct {
     uint16_t apps1_raw;         // Raw APPS1 value from ADC
     uint16_t apps2_raw;         // Raw APPS2 value from ADC
     uint16_t apps2_adjusted;    // APPS2 proportionally adjusted
-    uint16_t mean;              // Mean of both sensors (before hysteresis)
+    uint16_t mean;              // Pedal value used for throttle = APPS1 (before hysteresis)
     uint16_t mean_held;         // Mean after hysteresis, used for the throttle percentage
+    uint16_t disagreement;      // |APPS1 - APPS2 adjusted| right now (error above tolerance)
+    uint16_t disagreement_max;  // Worst disagreement seen - set to 0 in Live Expressions to reset
+    uint16_t disagreement_max_apps1;      // APPS1 raw at the worst disagreement
+    uint16_t disagreement_max_apps2_raw;  // APPS2 raw at the worst disagreement
     uint16_t percentage;        // Throttle percentage (0-100)
     uint16_t percentage_1000;   // Higher resolution throttle percentage (0-999)
     uint16_t functional_range;  // Range between min and max thresholds

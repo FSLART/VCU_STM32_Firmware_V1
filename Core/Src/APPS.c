@@ -28,17 +28,24 @@
 #define APPS_MIN_VALID_VALUE 50       // Minimum valid sensor reading (detect shorts to GND)
 #define APPS_MAX_VALID_VALUE 4050     // Maximum valid sensor reading (detect shorts to VCC)
 #define APPS_SHORT_THRESHOLD 10       // Threshold for detecting sensors shorted together
-#define APPS_TIMEOUT_MS 200           // Error timeout in milliseconds
+#define APPS_TIMEOUT_MS 600           // Error timeout in milliseconds
 #define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
 #define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
 #define APPS_SINGLE_SENSOR_TEST 0     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
 
-// Hysteresis on the pedal mean (5..10 bits; 1 bit ~= 0.6% of pedal travel).
-// The throttle output only changes once the mean moves more than this many bits
+// Hysteresis on the pedal value (APPS1) (5..10 bits; 1 bit ~= 0.7% of pedal travel).
+// The throttle output only changes once APPS1 moves more than this many bits
 // away from the last accepted value. Within this many bits of the 0% point the
 // output is forced to exactly 0 so a released pedal always reads 0.
 #define APPS_HYSTERESIS_BITS 5
+
+// APPS2 -> APPS1 scale. APPS2 is not exactly 2x APPS1: a straight-line fit of measured
+// points (APPS1 1185/1246/1260/1406 <-> APPS2 2343/2460/2476/2767) gives
+//   APPS2 = 1.928 * APPS1 + 55   ->   apps2_adjusted = (APPS2 - 55) / 1.928
+// so apps2_adjusted reads the same as APPS1 along the whole pedal travel.
+#define APPS2_OFFSET 55U         // APPS2 reading where APPS1 would be 0
+#define APPS2_GAIN_X1000 1928U   // APPS2 / APPS1 slope, x1000
 
 /* ---------------------- Global Debug Instance ---------------------- */
 /**
@@ -118,8 +125,17 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     apps_data.state.apps1_raw = apps1;
     apps_data.state.apps2_raw = apps2;
 
-    // Apply proportional adjustment to APPS2 (APPS2 is 2x APPS1)
-    apps_data.state.apps2_adjusted = apps2 >> 1;
+    // Convert APPS2 to APPS1 scale (see APPS2_OFFSET / APPS2_GAIN_X1000)
+    uint32_t apps2_above_offset = (apps2 > APPS2_OFFSET) ? (uint32_t)(apps2 - APPS2_OFFSET) : 0u;
+    apps_data.state.apps2_adjusted = (uint16_t)(apps2_above_offset * 1000u / APPS2_GAIN_X1000);
+
+    // Disagreement tracking for calibration (Live Expressions)
+    apps_data.state.disagreement = (uint16_t)abs((int)apps1 - (int)apps_data.state.apps2_adjusted);
+    if (apps_data.state.disagreement > apps_data.state.disagreement_max) {
+        apps_data.state.disagreement_max = apps_data.state.disagreement;
+        apps_data.state.disagreement_max_apps1 = apps1;
+        apps_data.state.disagreement_max_apps2_raw = apps2;
+    }
 
 #if APPS_SINGLE_SENSOR_TEST
     // TEST MODE: Ignore errors and APPS2, use APPS1 directly
@@ -154,9 +170,9 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         result.error = true;
         result.error_type = apps_data.state.error_type;
     } else {
-        // No error - calculate throttle position
-        // Use bit shift for division by 2 (faster than division)
-        apps_data.state.mean = (apps1 + apps_data.state.apps2_adjusted) >> 1;
+        // No error - throttle position comes from APPS1 only.
+        // APPS2 is still used above for the disagreement (plausibility) check.
+        apps_data.state.mean = apps1;
 #endif
 
         // Hysteresis: hold the pedal value until it moves more than APPS_HYSTERESIS_BITS.

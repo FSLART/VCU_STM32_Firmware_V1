@@ -28,8 +28,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-#define __APPS_MIN_BITS 1194U  // APPS1 ADC @ 0% throttle (measured)
-#define __APPS_MAX_BITS 1360U  // APPS1 ADC @ 100% throttle (measured)
+// APPS1 values - the throttle is taken from APPS1 only (APPS2 is only used for the
+// disagreement check). With the 5-bit APPS hysteresis the output stays 0 up to 1275.
+#define __APPS_MIN_BITS 1270U  // 0% throttle point  (rest 1260 + 10 bits dead zone)
+#define __APPS_MAX_BITS 1406U  // 100% throttle point (full pedal)
 #define __APPS_TOLERANCE 20U   // ~9% of range (231 bits), covers sensor noise
 #define __APPS_DELTA 339U      // usado para normalizar o valor do APPS
 
