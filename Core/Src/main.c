@@ -84,6 +84,7 @@
 #include "can_driver.h"
 #include "can_queue.h"
 #include "pau_control.h"
+#include "regen.h"
 
 #pragma endregion Includes
 /* -------------------- GLOBAL VARIABLES -------------------- */
@@ -863,6 +864,7 @@ void UpdateState(void) {
             case STATE_READY_MANUAL:
             case STATE_READY_AUTONOMOUS:
 
+                regen_reset();  // Start every drive with no regen and a fresh ramp
                 __HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 1000);
                 HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_SET);
                 StartR2DSound();
@@ -959,10 +961,25 @@ void HandleState(void) {
             uint32_t current_time_manuel = HAL_GetTick();
 
             if (current_time_manuel - last_can_send_time_manuel >= 5) {
-                can_bus_send_FSIC_SetDriveEnable(1, 1, &hcan2);             // INV1 drive enable
-                can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);             // INV2 drive enable
-                can_bus_send_FSIC_SetRelCurrent(1, apps_bspd_pau, &hcan2);  // INV1 torque command
-                can_bus_send_FSIC_SetRelCurrent(2, apps_bspd_pau, &hcan2);  // INV2 torque command
+                can_bus_send_FSIC_SetDriveEnable(1, 1, &hcan2);  // INV1 drive enable
+                can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);  // INV2 drive enable
+
+                // Torque or regen command (see regen.h)
+                regen_inputs_t regen_in = {
+                    .pedal_1000 = result.percentage_1000,
+                    .drive_request_1000 = apps_bspd_pau,
+                    .apps_error = result.error,
+                    .erpm_left = myFSIC1.Actual_ERPM,
+                    .erpm_right = myFSIC2.Actual_ERPM,
+                    .fault_left = myFSIC1.Actual_FaultCode,
+                    .fault_right = myFSIC2.Actual_FaultCode,
+                    .dc_voltage_v = (myFSIC1.Actual_InputVoltage > myFSIC2.Actual_InputVoltage)
+                                        ? myFSIC1.Actual_InputVoltage
+                                        : myFSIC2.Actual_InputVoltage,
+                };
+                regen_update(&regen_in, current_time_manuel);
+                regen_send_to_inverters(&hcan2, current_time_manuel);
+
                 can_bus_send_bms_close_contactors(1, &hcan2);
                 last_can_send_time_manuel = current_time_manuel;
             }

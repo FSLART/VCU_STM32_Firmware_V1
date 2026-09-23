@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cd \"C:/Users/jpser/Documents/GitHub/VCU_STM32_Firmware_V1/Core/Dbc\" && sed -n '405,475p' fsic.h && grep -n \"fault_code\\\\|Actual_FaultCode\" fsic.h ../Src/CAN_utils.c | head; grep -n \"MOTOR_POLE_PAIRS\\\\|MAX_RPM_AD\" ../Inc/*.h ../Src/main.c | head)"
+    ]
+  }
+}
