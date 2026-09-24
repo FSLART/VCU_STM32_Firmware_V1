@@ -15,14 +15,14 @@
 // All values in APPS1 bits. The throttle is taken from APPS1 only; APPS2 is only used
 // for the disagreement (plausibility) check.
 
-#define APPS_MIN_BITS   1265U  // 0% throttle point  (rest measured 1258 + 7 bits dead zone)
-#define APPS_MAX_BITS   1394U  // 100% throttle point (full pedal measured 1398, -4 bits margin)
-#define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (~15% of the 129-bit range)
+#define APPS_MIN_BITS   1238U  // 0% throttle point  (rest measured 1233 + 5 bits dead zone)
+#define APPS_MAX_BITS   1381U  // 100% throttle point (full pedal measured 1385, -4 bits margin)
+#define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (~14% of the 143-bit range)
 
-// Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.8% of pedal travel). The throttle output
+// Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.7% of pedal travel). The throttle output
 // only changes once APPS1 moves more than this many bits away from the last accepted
 // value. Within this many bits of the 0% point the output is forced to exactly 0, so a
-// released pedal always reads 0 (with the values above: 0 up to APPS1 1270).
+// released pedal always reads 0 (with the values above: 0 up to APPS1 1243).
 #define APPS_HYSTERESIS_BITS 5
 
 // APPS2 -> APPS1 scale. APPS2 is not exactly 2x APPS1: a straight-line fit of measured

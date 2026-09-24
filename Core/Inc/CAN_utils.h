@@ -23,7 +23,7 @@ extern APPS_Result_t result;
 /* BYPASS VARIABLES */
 #define Bypass_brake_pressure 0
 
-#define BRAKE_PRESSURE_THRESHOLD 2  // Minimum brake pressure (bar) required for R2D (rest reads ~1-2 bar)
+#define BRAKE_PRESSURE_THRESHOLD 6  // Minimum brake pressure (bar) required for R2D (rest reads ~3.1 bar, has drifted 1..3)
 
 typedef struct {
     uint32_t id;
@@ -169,9 +169,24 @@ typedef struct {
 
 // VCU signals structure
 typedef struct {
-    bool r2d_button_signal;  // R2D signal
-    bool r2d_toggle_signal;  // R2D toggle signal
-    bool r2d_button_prev;    // Previous state of button for edge detection
+    // ---- Dashboard buttons (from the CAN dashboard frame) ----
+    // Both are momentary buttons: each release toggles the request (50 ms debounce).
+    uint32_t dash_rx_count;            // Dashboard frames received
+    uint8_t ignition_button_raw;       // Ignition button bit in the last frame (1 = pressed)
+    uint8_t r2d_button_raw;            // R2D button bit in the last frame (1 = pressed)
+    bool ignition_button_prev;         // Debounced ignition button state, for edge detection
+    bool r2d_button_prev;              // Debounced R2D button state, for edge detection
+    uint32_t ignition_last_edge_time;  // Tick of the last ignition press/release (debounce)
+    uint32_t r2d_last_edge_time;       // Tick of the last R2D press/release (debounce)
+    bool ignition_toggle_signal;       // Ignition on/off, flips on each ignition button release
+    bool ignition_switch_signal;       // Ignition request used by the state machine (= toggle)
+    bool r2d_toggle_signal;            // R2D on/off, flips on each accepted R2D button release
+
+    // What the R2D check saw at the last R2D button release
+    uint8_t r2d_release_brake_bar;     // Brake pressure (needs >= BRAKE_PRESSURE_THRESHOLD)
+    uint8_t r2d_release_apps_pct;      // Accelerator % (needs 0)
+    uint8_t r2d_release_state;         // VCU state (needs 4 = waiting for R2D manual)
+    bool r2d_release_accepted;         // Whether that release toggled R2D
 
     bool r2d_autonomous_signal;  // R2D signal from autonomous system
 
@@ -179,18 +194,12 @@ typedef struct {
 
     uint8_t brake_pressure;  // Brake pressure signal
 
-    bool ignition_ad;                    // ignition coming from autonomous system
-    bool ignition_ad_prev;               // Previous state for edge detection
-    bool ignition_switch_signal;         // Ignition signal
-    bool ignition_toggle_signal;         // Toggled state for momentary ignition button
-    bool ignition_button_prev;           // Previous state of momentary ignition button
-    uint32_t ignition_last_toggle_time;  // Timestamp for debounce
+    bool ignition_ad;       // ignition coming from autonomous system
+    bool ignition_ad_prev;  // Previous state for edge detection
 
     bool precharge_signal;  // Precharge signal
     bool manual;            // Manual mode signal
     bool autonomous;        // Autonomous mode signal
-
-    uint32_t r2d_last_toggle_time;  // Timestamp for debounce
 
     bool AS_emergency;
 
