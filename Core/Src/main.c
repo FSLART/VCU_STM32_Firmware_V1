@@ -28,19 +28,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 /* -------------------- CONFIGURATION DEFINES -------------------- */
-// APPS1 values - the throttle is taken from APPS1 only (APPS2 is only used for the
-// disagreement check). With the 5-bit APPS hysteresis the output stays 0 up to 1275.
-#define __APPS_MIN_BITS 1270U  // 0% throttle point  (rest 1260 + 10 bits dead zone)
-#define __APPS_MAX_BITS 1406U  // 100% throttle point (full pedal)
-#define __APPS_TOLERANCE 20U   // ~9% of range (231 bits), covers sensor noise
-#define __APPS_DELTA 339U      // usado para normalizar o valor do APPS
-
-#define APPS_MA_WINDOW_SIZE 5  // Window size for moving average
-
-#define CALIBRATE_APPS 0
+// All APPS settings (calibration, hysteresis, moving average, CAN timeout) are in APPS.h
 
 /*----CAN SAFETY TIMEOUTS----*/
-#define MAX_APPS_TIMEOUT_MS 250  // TIMEOUT for APPS loss of communication
 // UNCOMMENT IF YOU WANT COMMUNICATIONS CHECKS ON R2D
 // #define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
 /*---------------------------*/
@@ -1377,7 +1367,7 @@ int main(void)
   MX_USART3_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-    APPS_Init(__APPS_MIN_BITS, __APPS_MAX_BITS, __APPS_TOLERANCE);  // Initialize APPS
+    APPS_Init(APPS_MIN_BITS, APPS_MAX_BITS, APPS_TOLERANCE);  // Initialize APPS (calibration in APPS.h)
     HAL_TIM_Base_Start_IT(&htim2);
 
     can_driver_init();

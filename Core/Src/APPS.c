@@ -34,18 +34,7 @@
 
 #define APPS_SINGLE_SENSOR_TEST 0     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
 
-// Hysteresis on the pedal value (APPS1) (5..10 bits; 1 bit ~= 0.7% of pedal travel).
-// The throttle output only changes once APPS1 moves more than this many bits
-// away from the last accepted value. Within this many bits of the 0% point the
-// output is forced to exactly 0 so a released pedal always reads 0.
-#define APPS_HYSTERESIS_BITS 5
-
-// APPS2 -> APPS1 scale. APPS2 is not exactly 2x APPS1: a straight-line fit of measured
-// points (APPS1 1185/1246/1260/1406 <-> APPS2 2343/2460/2476/2767) gives
-//   APPS2 = 1.928 * APPS1 + 55   ->   apps2_adjusted = (APPS2 - 55) / 1.928
-// so apps2_adjusted reads the same as APPS1 along the whole pedal travel.
-#define APPS2_OFFSET 55U         // APPS2 reading where APPS1 would be 0
-#define APPS2_GAIN_X1000 1928U   // APPS2 / APPS1 slope, x1000
+// Pedal calibration (0%/100% points, tolerance, hysteresis, APPS2 scale) is in APPS.h
 
 /* ---------------------- Global Debug Instance ---------------------- */
 /**

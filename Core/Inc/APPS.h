@@ -11,6 +11,34 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* ========================= PEDAL CALIBRATION ======================== */
+// All values in APPS1 bits. The throttle is taken from APPS1 only; APPS2 is only used
+// for the disagreement (plausibility) check.
+
+#define APPS_MIN_BITS   1265U  // 0% throttle point  (rest measured 1258 + 7 bits dead zone)
+#define APPS_MAX_BITS   1394U  // 100% throttle point (full pedal measured 1398, -4 bits margin)
+#define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (~15% of the 129-bit range)
+
+// Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.8% of pedal travel). The throttle output
+// only changes once APPS1 moves more than this many bits away from the last accepted
+// value. Within this many bits of the 0% point the output is forced to exactly 0, so a
+// released pedal always reads 0 (with the values above: 0 up to APPS1 1270).
+#define APPS_HYSTERESIS_BITS 5
+
+// APPS2 -> APPS1 scale. APPS2 is not exactly 2x APPS1: a straight-line fit of measured
+// points (APPS1 1185/1246/1260/1406 <-> APPS2 2343/2460/2476/2767) gives
+//   APPS2 = 1.928 * APPS1 + 55   ->   apps2_adjusted = (APPS2 - 55) / 1.928
+// so apps2_adjusted reads the same as APPS1 along the whole pedal travel.
+#define APPS2_OFFSET       55U  // APPS2 reading where APPS1 would be 0
+#define APPS2_GAIN_X1000 1928U  // APPS2 / APPS1 slope, x1000
+
+/* ====================== FILTERING AND SAFETY ======================== */
+// Used by main.c (moving average, CAN timeout check and calibration mode).
+
+#define APPS_MA_WINDOW_SIZE     5  // Moving average window, in samples of the ~100 Hz APPS timer
+#define MAX_APPS_TIMEOUT_MS   250  // No APPS CAN frame for this long -> throttle forced to 0
+#define CALIBRATE_APPS          0  // 1 = run APPS_Calibrate() and apply the measured min/max/tolerance
+
 // Error types
 typedef enum {
     APPS_ERROR_NONE = 0,
