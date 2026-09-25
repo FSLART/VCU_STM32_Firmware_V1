@@ -160,6 +160,13 @@ const char* state_names[] = {
     "STATE_READY_AUTONOMOUS",
     "STATE_AS_EMERGENCY"};
 
+//Loop-Counter
+#define TEST_TIMEFRAME_SECONDS 600
+uint32_t loop_counter = 0;
+uint32_t sec = 0;
+uint32_t loops_per_sec = 0;
+uint32_t loop_DATA[TEST_TIMEFRAME_SECONDS];
+
 #pragma endregion Global Variables
 
 /* USER CODE END Includes */
@@ -1383,6 +1390,7 @@ int main(void)
         // Timing-based tasks
         static uint32_t previous_tick_10ms = 0;
         static uint32_t previous_tick_100ms = 0;
+        static uint32_t previous_tick_1s = 0;
         uint32_t current_tick = HAL_GetTick();
 
         // 10ms tasks (100Hz) - High frequency control tasks
@@ -1396,6 +1404,18 @@ int main(void)
             execute_100ms_tasks();
             previous_tick_100ms = current_tick;
         }
+        //Loop-counter and cycle stats
+        loop_counter++;
+        if (current_tick - previous_tick_1s >= 1000) {
+			if(sec < TEST_TIMEFRAME_SECONDS){
+				loops_per_sec = loop_counter;
+				loop_counter = 0;
+				loop_DATA[sec] = loops_per_sec;
+				sec++;
+			}
+            previous_tick_1s = current_tick;
+        }
+
     }
   /* USER CODE END 3 */
 }
