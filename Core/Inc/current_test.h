@@ -47,7 +47,7 @@
 
 #define CURRENT_TEST_APPS_ON_1000      500  // Constant starts at 50% accelerator
 #define CURRENT_TEST_HYSTERESIS_1000    20  // Constant stops below 48% (50% - 2%)
-#define CURRENT_TEST_REL_CURRENT_1000  200  // Constant relative current: 20.0% of inverter max
+#define CURRENT_TEST_REL_CURRENT_1000  600  // Constant relative current: 20.0% of inverter max
 
 /* ============================== TYPES =============================== */
 

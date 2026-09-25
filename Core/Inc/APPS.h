@@ -32,6 +32,11 @@
 #define APPS2_OFFSET       55U  // APPS2 reading where APPS1 would be 0
 #define APPS2_GAIN_X1000 1928U  // APPS2 / APPS1 slope, x1000
 
+// BENCH TEST ONLY - 1 = ignore APPS2 completely (no disagreement / APPS2 short checks).
+// Only APPS1 short to GND/VCC is still checked. Violates the two-sensor plausibility
+// rule: set back to 0 before driving.
+#define APPS_BYPASS_APPS2 1
+
 /* ====================== FILTERING AND SAFETY ======================== */
 // Used by main.c (moving average, CAN timeout check and calibration mode).
 

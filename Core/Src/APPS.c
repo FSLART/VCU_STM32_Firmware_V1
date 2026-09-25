@@ -238,6 +238,16 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
  * @return APPS_ErrorType_t Error type detected, or APPS_ERROR_NONE
  */
 static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted) {
+#if APPS_BYPASS_APPS2
+    // BENCH TEST BYPASS: APPS2 ignored, only APPS1 short to GND/VCC is checked
+    (void)apps2_raw;
+    (void)apps2_adjusted;
+    if ((apps1 < APPS_MIN_VALID_VALUE) || (apps1 > APPS_MAX_VALID_VALUE)) {
+        return APPS_ERROR_SHORT_CIRCUIT;
+    }
+    return APPS_ERROR_NONE;
+#endif
+
     // Check if values differ by more than 10%
 
     uint16_t max_difference = apps_data.config.tolerance;
