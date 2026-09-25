@@ -77,6 +77,7 @@
 #include "pau_control.h"
 #include "regen.h"
 #include "torque_ramp.h"
+#include "current_test.h"
 
 #pragma endregion Includes
 /* -------------------- GLOBAL VARIABLES -------------------- */
@@ -848,6 +849,7 @@ void UpdateState(void) {
 
 			regen_reset();        // Start every drive with no regen and a fresh ramp
 			torque_ramp_reset();  // Start every drive with torque at 0
+			current_test_reset();  // Test mode starts with no current request
 			__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 1000);
 			HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_SET);
 			StartR2DSound();
@@ -953,6 +955,9 @@ void HandleState(void) {
 			regen_update(&regen_in, current_time_manuel);                     // 1. Regen or drive
 			uint16_t drive_1000 = torque_ramp_update(regen.drive_cmd_1000,     // 2. Soften torque rise
 					regen.vehicle_speed_kmh, current_time_manuel);
+#if CURRENT_TEST_ENABLE
+			drive_1000 = current_test_apply(drive_1000, apps_bspd_pau, result.error);  // 2b. Bench test: constant above threshold
+#endif
 			regen_send_to_inverters(&hcan2, drive_1000, current_time_manuel);  // 3. Send
 
 			can_bus_send_bms_close_contactors(1, &hcan2);
