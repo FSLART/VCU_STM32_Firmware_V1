@@ -23,10 +23,28 @@
  *
  *      The coast point moves with speed:
  *        standstill                   -> 8% pedal
- *        REGEN_COAST_SPEED_HIGH_KMH   -> 40% pedal  (straight line in between)
+ *        REGEN_COAST_SPEED_HIGH_KMH   -> 25% pedal  (straight line in between)
  *      So at low speed almost any pedal drives, and at high speed the lower part of
- *      the pedal is regen. Below the coast point regen grows the further the pedal is
- *      lifted; above it (plus a small coast band) torque grows up to 100% at full pedal.
+ *      the pedal is regen. Above the coast point (plus a small coast band) torque grows
+ *      up to 100% at full pedal.
+ *
+ *      Below the coast point regen follows a two-stage curve over the "lift depth"
+ *      (0% = pedal at the coast point, 100% = pedal fully released):
+ *
+ *        regen
+ *        99% |                              *
+ *            |                         *
+ *            |                    *
+ *        30% |               *
+ *            |          *
+ *            |     *
+ *         0% *-------------+--------------+  lift depth
+ *            0%           50%           100%
+ *            |  soft: lift   |  strong:     |
+ *            |  for a corner |  foot off    |
+ *
+ *      A partial lift (e.g. to settle the car into a corner) only gives gentle regen;
+ *      full regen needs the foot right off the pedal.
  *
  *   2. Speed fade - regen is scaled by vehicle speed:
  *        below REGEN_SPEED_MIN_KMH   -> no regen (rules: no regen at walking speed)
@@ -73,17 +91,21 @@
 
 /* ============================ STRENGTH ============================== */
 
-// Maximum regen, in per mille of the inverter's configured max brake current.
+// Regen strengths, in per mille of the inverter's configured max brake current.
 // 1000 = 100.0% (steps of 0.1%). The VCU never sends amps: with 18 A configured in
-// the inverters, 980 = full lift-off asks for 98% of 18 A = ~17.6 A.
-#define REGEN_MAX_1000 980
+// the inverters, 990 = 99% of 18 A = ~17.8 A.
+#define REGEN_MAX_1000 990        // Foot fully off the pedal: 99%
+
+// Two-stage regen curve over the lift depth (see the diagram above)
+#define REGEN_SOFT_LIFT_1000 500  // First 50% of the lift is the soft stage
+#define REGEN_SOFT_MAX_1000  300  // Regen at the end of the soft stage: 30%
 
 /* ============================ PEDAL MAP ============================= */
 // Pedal positions in per mille of travel (APPS percentage_1000).
 
 #define REGEN_PEDAL_FULL_REGEN_1000   30   // Below 3% pedal: full regen (absorbs pedal noise at rest)
 #define REGEN_COAST_PEDAL_LOW_1000    80   // Coast point at standstill: 8% pedal
-#define REGEN_COAST_PEDAL_HIGH_1000  400   // Coast point at REGEN_COAST_SPEED_HIGH_KMH and above: 40% pedal
+#define REGEN_COAST_PEDAL_HIGH_1000  250   // Coast point at REGEN_COAST_SPEED_HIGH_KMH and above: 25% pedal
 #define REGEN_COAST_SPEED_HIGH_KMH   100   // Speed where the coast point reaches its highest (km/h), ~top speed
 #define REGEN_COAST_BAND_1000         40   // Zero-torque band above the coast point: 4% pedal
 
@@ -162,8 +184,9 @@ typedef struct {
     float vehicle_speed_kmh;      // Vehicle speed calculated from motor_rpm
     uint16_t coast_pedal_1000;    // Pedal position giving zero torque at this speed
 
-    // Factors, 0..1000 each. Regen target = REGEN_MAX_1000 * pedal * speed * voltage.
-    uint16_t pedal_factor_1000;   // From the pedal map (1000 = pedal fully released)
+    // Factors, 0..1000 each. Regen target = lift curve * speed * voltage.
+    uint16_t pedal_factor_1000;   // Lift depth (0 = pedal at the coast point, 1000 = fully released)
+    uint16_t lift_regen_1000;     // Regen from the two-stage lift curve (before speed/voltage)
     uint16_t speed_factor_1000;   // From the speed fade (1000 = fast enough for full regen)
     uint16_t voltage_factor_1000; // From the DC voltage limit (1000 = no limit)
 

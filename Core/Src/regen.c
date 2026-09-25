@@ -24,6 +24,12 @@
 #if (REGEN_MAX_1000 < 0) || (REGEN_MAX_1000 > 1000)
 #error "regen.h: REGEN_MAX_1000 must be 0..1000"
 #endif
+#if (REGEN_SOFT_MAX_1000 < 0) || (REGEN_SOFT_MAX_1000 > REGEN_MAX_1000)
+#error "regen.h: REGEN_SOFT_MAX_1000 must be 0..REGEN_MAX_1000"
+#endif
+#if (REGEN_SOFT_LIFT_1000 <= 0) || (REGEN_SOFT_LIFT_1000 >= 1000)
+#error "regen.h: REGEN_SOFT_LIFT_1000 must be between 0 and 1000"
+#endif
 #if (REGEN_RAMP_UP_MS <= 0) || (REGEN_RAMP_DOWN_MS <= 0)
 #error "regen.h: REGEN_RAMP_UP_MS and REGEN_RAMP_DOWN_MS must be above 0"
 #endif
@@ -86,6 +92,22 @@ static uint16_t coast_pedal_at_speed(float speed_kmh) {
  */
 static uint16_t pedal_regen_factor(uint16_t pedal_1000, uint16_t coast_pedal_1000) {
     return 1000 - ramp_factor(pedal_1000, REGEN_PEDAL_FULL_REGEN_1000, coast_pedal_1000);
+}
+
+/**
+ * @brief Two-stage regen curve over the lift depth
+ * @param lift_depth_1000 0 = pedal at the coast point, 1000 = pedal fully released
+ * @return Regen, 0..REGEN_MAX_1000
+ * @details Soft stage: 0 -> REGEN_SOFT_MAX_1000 over the first REGEN_SOFT_LIFT_1000 of
+ *          the lift (partial lift for a corner). Strong stage: REGEN_SOFT_MAX_1000 ->
+ *          REGEN_MAX_1000 over the rest of the lift (foot off the pedal).
+ */
+static uint16_t regen_from_lift_depth(uint16_t lift_depth_1000) {
+    if (lift_depth_1000 <= REGEN_SOFT_LIFT_1000) {
+        return (uint16_t)((uint32_t)REGEN_SOFT_MAX_1000 * lift_depth_1000 / REGEN_SOFT_LIFT_1000);
+    }
+    uint32_t strong_part = ramp_factor(lift_depth_1000, REGEN_SOFT_LIFT_1000, 1000);
+    return (uint16_t)(REGEN_SOFT_MAX_1000 + (REGEN_MAX_1000 - REGEN_SOFT_MAX_1000) * strong_part / 1000u);
 }
 
 /**
@@ -177,12 +199,12 @@ void regen_update(const regen_inputs_t *in, uint32_t now_ms) {
     /* --- Factors --- */
     regen.coast_pedal_1000 = coast_pedal_at_speed(regen.vehicle_speed_kmh);
     regen.pedal_factor_1000 = pedal_regen_factor(in->pedal_1000, regen.coast_pedal_1000);
+    regen.lift_regen_1000 = regen_from_lift_depth(regen.pedal_factor_1000);
     regen.speed_factor_1000 = ramp_factor(regen.vehicle_speed_kmh, REGEN_SPEED_MIN_KMH, REGEN_SPEED_FULL_KMH);
     regen.voltage_factor_1000 = dc_voltage_factor(in->dc_voltage_v);
 
     /* --- Regen target: max strength scaled by every factor --- */
-    uint32_t target = REGEN_MAX_1000;
-    target = target * regen.pedal_factor_1000 / 1000u;
+    uint32_t target = regen.lift_regen_1000;
     target = target * regen.speed_factor_1000 / 1000u;
     target = target * regen.voltage_factor_1000 / 1000u;
 
