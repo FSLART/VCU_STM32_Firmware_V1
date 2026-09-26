@@ -1147,6 +1147,9 @@ void execute_10ms_tasks(void) {
 		// Send VCU_state DBC message on CAN2 (via TX queue)
 		can_bus_send_vcu_state();
 
+		// Throttle percentage (APPS1 -> 0..100 %) on the data bus, AQT1 0x700
+		can_bus_send_aqt1_throttle(&hcan1, APPS_ToThrottlePercent(apps_data.state.apps1_raw));
+
 		last_telemetry_send_time = current_telemetry_time;
 	}
 

@@ -111,6 +111,14 @@ extern APPS_Instance_t apps_data;
 // Core functions
 void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance);
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);
+
+/**
+ * @brief Convert an APPS1 reading to throttle percentage
+ * @param apps1_bits APPS1 value (same units as APPS_MIN_BITS / APPS_MAX_BITS)
+ * @return 0..100 %, straight line between APPS_MIN_BITS (0%) and APPS_MAX_BITS (100%),
+ *         clamped. No hysteresis and no error checks - it always converts.
+ */
+uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits);
 APPS_ErrorType_t APPS_GetErrorType(uint16_t apps1, uint16_t apps2);
 void APPS_PrintStatus(void);
 APPS_Config_t APPS_GetConfig(void);

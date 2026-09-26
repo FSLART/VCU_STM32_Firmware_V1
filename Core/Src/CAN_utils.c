@@ -6,6 +6,7 @@
 
 #include "autonomous_t26.h"
 #include "data_dbc.h"
+#include "data_t26.h"
 #include "fsic.h"
 #include "powertrain_t26.h"
 
@@ -900,6 +901,17 @@ void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8
     data.message[7] = (uint8_t)((apps_1000 >> 8) & 0xFF);  // High byte of apps_1000
 
     can_bus_send(hcan, data.id, data.message, data.length);
+}
+
+void can_bus_send_aqt1_throttle(CAN_HandleTypeDef *hcan, uint8_t throttle_percent) {
+    struct data_t26_aqt1_t aqt1;
+    data_t26_aqt1_init(&aqt1);
+    aqt1.throtle_percentage = throttle_percent;
+
+    uint8_t data[DATA_T26_AQT1_LENGTH];
+    if (data_t26_aqt1_pack(data, &aqt1, sizeof(data)) >= 0) {
+        can_bus_send(hcan, DATA_T26_AQT1_FRAME_ID, data, DATA_T26_AQT1_LENGTH);
+    }
 }
 
 void can_bus_send_vcu_state(void) {

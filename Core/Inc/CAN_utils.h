@@ -378,6 +378,13 @@ void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8
 void can_bus_send_vcu_state(void);
 
 /**
+ * @brief Send AQT1 (0x700, data bus) with the throttle percentage
+ * @param hcan CAN handle for the data bus
+ * @param throttle_percent Throttle 0..100 %
+ */
+void can_bus_send_aqt1_throttle(CAN_HandleTypeDef* hcan, uint8_t throttle_percent);
+
+/**
  * @brief CAN mailbox used for transmitting messages
  */
 extern uint32_t TxMailbox;

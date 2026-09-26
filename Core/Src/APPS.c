@@ -107,6 +107,12 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
  * @param apps2 Raw ADC value from APPS2 sensor (0-4095)
  * @return APPS_Result_t Structure with throttle position and error status
  */
+uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits) {
+    if (apps1_bits <= APPS_MIN_BITS) return 0;
+    if (apps1_bits >= APPS_MAX_BITS) return 100;
+    return (uint8_t)(((uint32_t)(apps1_bits - APPS_MIN_BITS) * 100u) / (APPS_MAX_BITS - APPS_MIN_BITS));
+}
+
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     APPS_Result_t result = {0};
 
