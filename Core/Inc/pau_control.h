@@ -5,6 +5,8 @@
 
 #include <stdint.h>
 
+#define PAU_CONTROL_ENABLE 0  // 1 = power limit on the drive request (used by throttle_control.c)
+
 // Constants
 #define PAU_POWER_LIMIT_THRESHOLD_W 65000    // Start power limiting above 60kW
 #define PAU_MAX_POWER_W 70000                // Maximum allowed power in watts (80 kW)

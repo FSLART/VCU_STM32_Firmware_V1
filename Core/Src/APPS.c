@@ -20,6 +20,17 @@
 
 #include "main.h"
 
+// Calibration sanity checks (values are also range-checked by tools/throttle_map_editor.py)
+#if APPS_MAX_BITS <= APPS_MIN_BITS
+#error "APPS.h: APPS_MAX_BITS must be greater than APPS_MIN_BITS (divides by the difference)"
+#endif
+#if APPS2_GAIN_X1000 == 0
+#error "APPS.h: APPS2_GAIN_X1000 must not be 0 (divides by it)"
+#endif
+#if APPS_MA_WINDOW_SIZE < 1
+#error "APPS.h: APPS_MA_WINDOW_SIZE must be at least 1"
+#endif
+
 /* ---------------------- Constants ---------------------- */
 /**
  * Configuration constants for APPS module

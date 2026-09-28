@@ -18,5 +18,6 @@
         "string_view": "c",
         "pau_control.h": "c"
     },
-    "C_Cpp.errorSquiggles": "disabled"
+    "C_Cpp.errorSquiggles": "disabled",
+    "python.analysis.extraPaths": ["tools"]
 }

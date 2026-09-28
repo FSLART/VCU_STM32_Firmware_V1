@@ -34,8 +34,7 @@
 // #define MAX_R2D_IGN_TIMEOUT_MS 50 //TIMEOUT for IGN and R2D loss of communication
 /*---------------------------*/
 
-#define DIGI_BSPD_ENABLE 1    // Enable digital BSPD
-#define PAU_CONTROL_ENABLE 0  // Enable power adjust utility (PAU) control
+// Throttle control (map, regen, torque ramp, BSPD override) is in throttle_control.h
 
 #define print_state 0
 #define print_variables 0
@@ -75,8 +74,7 @@
 #include "can_driver.h"
 #include "can_queue.h"
 #include "pau_control.h"
-#include "regen.h"
-#include "torque_ramp.h"
+#include "throttle_control.h"
 
 #pragma endregion Includes
 /* -------------------- GLOBAL VARIABLES -------------------- */
@@ -124,8 +122,6 @@ volatile bool can3_rx_flag = false;
 APPS_Result_t result = { 0 };  // Result structure for APPS processing
 
 bspd_state_t bspd_state;
-
-uint16_t apps_bspd_pau = 0;
 
 // vars on can utils file
 volatile FSIC_t myFSIC1;  // Rear-left inverter
@@ -799,6 +795,12 @@ void UpdateState(void) {
 #ifdef print_state
 		print_state_transition(previous_state, current_state);
 #endif
+		// Leaving manual ready-to-drive (R2D off, ignition, shutdown, emergency): zero the
+		// inverter current request so the inverters do not keep the last drive/regen command
+		if (previous_state == STATE_READY_MANUAL) {
+			throttle_control_stop(&hcan2);
+		}
+
 		// State entry actions
 		switch (current_state) {
 		case STATE_INIT:
@@ -846,8 +848,7 @@ void UpdateState(void) {
 		case STATE_READY_MANUAL:
 		case STATE_READY_AUTONOMOUS:
 
-			regen_reset();        // Start every drive with no regen and a fresh ramp
-			torque_ramp_reset();  // Start every drive with torque at 0
+			throttle_control_reset();  // Start every drive with no torque and fresh ramps
 			__HAL_TIM_SET_COMPARE(&htim4, TIM_CHANNEL_1, 1000);
 			HAL_GPIO_WritePin(GPIOD, LED_R2D_Pin, GPIO_PIN_SET);
 			StartR2DSound();
@@ -947,13 +948,9 @@ void HandleState(void) {
 			can_bus_send_FSIC_SetDriveEnable(1, 1, &hcan2);  // INV1 drive enable
 			can_bus_send_FSIC_SetDriveEnable(2, 1, &hcan2);  // INV2 drive enable
 
-			// Torque or regen command (see regen.h)
-			regen_inputs_t regen_in = { .pedal_1000 = result.percentage_1000, .drive_request_1000 = apps_bspd_pau, .apps_error = result.error, .erpm_left = myFSIC1.Actual_ERPM, .erpm_right = myFSIC2.Actual_ERPM, .fault_left =
-					myFSIC1.Actual_FaultCode, .fault_right = myFSIC2.Actual_FaultCode, .dc_voltage_v = (myFSIC1.Actual_InputVoltage > myFSIC2.Actual_InputVoltage) ? myFSIC1.Actual_InputVoltage : myFSIC2.Actual_InputVoltage, };
-			regen_update(&regen_in, current_time_manuel);                     // 1. Regen or drive
-			uint16_t drive_1000 = torque_ramp_update(regen.drive_cmd_1000,     // 2. Soften torque rise
-					regen.vehicle_speed_kmh, current_time_manuel);
-			regen_send_to_inverters(&hcan2, drive_1000, current_time_manuel);  // 3. Send
+			// Pedal -> throttle map -> limits -> ramps -> digital BSPD (last), see throttle_control.h
+			throttle_control_update(&result, bspd_state.bspd_active, (const FSIC_t*) &myFSIC1, (const FSIC_t*) &myFSIC2, ivt.result_W, current_time_manuel);
+			throttle_control_send(&hcan2, current_time_manuel);
 
 			can_bus_send_bms_close_contactors(1, &hcan2);
 			last_can_send_time_manuel = current_time_manuel;
@@ -1458,15 +1455,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	MovingAverage_Update(ADC2_APPS[0], ADC2_APPS[1]);
 	result = APPS_Process(apps2_avg, apps1_avg);
 
-#if PAU_CONTROL_ENABLE
-    apps_bspd_pau = pau_limit_accelerator(result.percentage_1000, ivt.result_W);
-#else
-	apps_bspd_pau = result.percentage_1000;  // Use raw APPS percentage when PAU is disabled
-#endif
-
-#if DIGI_BSPD_ENABLE
-	apps_bspd_pau = bspd_process(&bspd_state, vcu.brake_pressure, apps_bspd_pau, HAL_GetTick());
-#endif
+	// Digital BSPD - always active. Only updates bspd_state here; throttle_control applies
+	// it LAST, overriding every other torque decision.
+	bspd_process(&bspd_state, vcu.brake_pressure, result.percentage_1000, HAL_GetTick());
 }
 /* USER CODE END 4 */
 
