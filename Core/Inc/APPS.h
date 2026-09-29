@@ -15,8 +15,8 @@
 // All values in APPS1 bits. The throttle is taken from APPS1 only; APPS2 is only used
 // for the disagreement (plausibility) check.
 
-#define APPS_MIN_BITS   1120U  // 0% throttle point  (rest measured 1113 + 9 bits dead zone)
-#define APPS_MAX_BITS   1365U  // 100% throttle point (full pedal measured 1375, -8 bits margin for drift)
+#define APPS_MIN_BITS   1265U  // 0% throttle point  (rest measured 1113 + 9 bits dead zone)
+#define APPS_MAX_BITS   1394U  // 100% throttle point (full pedal measured 1375, -8 bits margin for drift)
 #define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (~8% of the 249-bit range)
 
 // Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.4% of pedal travel). The throttle output

@@ -12,8 +12,10 @@ Settings are edited IN PLACE: only the number on each '#define NAME <number>' li
 replaced; comments and everything else stay as they are. If a define is not found on
 exactly one plain line where it is expected, every setting from that file is locked
 (shown, never written) - the file is not as the tool expects, so writing it is not safe.
-Every value is range checked before saving, plus rule checks (APPS tolerance <= 10 % of
-pedal travel). A file with an error is not written.
+Every value is range checked, plus rule checks (APPS tolerance <= 10 % of pedal travel,
+...). These are WARNINGS only: they are shown in red and listed before saving, and the
+user decides whether to save anyway. Only a field that is not a number, or a locked
+file, stops a save.
 
     python tools/throttle_map_editor.py             # open the editor
     python tools/throttle_map_editor.py --selftest  # check everything reads and writes back unchanged
@@ -30,7 +32,7 @@ import contextlib
 import re
 import sys
 import time
-from collections import namedtuple
+from collections import deque, namedtuple
 from itertools import pairwise
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -424,7 +426,7 @@ def check_settings(values):
     lo, hi, tol = get("APPS_MIN_BITS"), get("APPS_MAX_BITS"), get("APPS_TOLERANCE")
     if None not in (lo, hi, tol):
         if hi <= lo:
-            errors.append((APPS_H, "APPS_MIN_BITS tem de ser menor que APPS_MAX_BITS"))
+            errors.append((APPS_H, "APPS_MIN_BITS tem de ser menor que APPS_MAX_BITS (senao o firmware nao compila)"))
         elif tol > (hi - lo) / 10:
             errors.append(
                 (
@@ -437,13 +439,13 @@ def check_settings(values):
         errors.append(
             (
                 TC,
-                "THROTTLE_REGEN_FADE_START_V tem de ser menor que THROTTLE_REGEN_CUTOFF_V",
+                "THROTTLE_REGEN_FADE_START_V tem de ser menor que THROTTLE_REGEN_CUTOFF_V (senao o firmware nao compila)",
             )
         )
     pau_lo, pau_hi = get("PAU_POWER_LIMIT_THRESHOLD_W"), get("PAU_MAX_POWER_W")
     if None not in (pau_lo, pau_hi) and pau_lo >= pau_hi:
         errors.append(
-            (PAU, "PAU_POWER_LIMIT_THRESHOLD_W tem de ser menor que PAU_MAX_POWER_W")
+            (PAU, "PAU_POWER_LIMIT_THRESHOLD_W tem de ser menor que PAU_MAX_POWER_W (senao o firmware nao compila)")
         )
     return errors
 
@@ -456,16 +458,13 @@ def format_value(setting, value):
 
 
 def write_settings(new_values):
-    """Write changed values, file by file. Returns (written_files, error_messages).
-    A file is skipped if any of its values fails the checks, or if a define line no
-    longer matches exactly once (file changed since it was read)."""
-    errors = check_settings(new_values)
-    blocked = {f for f, _ in errors}
-    messages = [m for _, m in errors]
+    """Write changed values in place, file by file. Returns (written_files, messages).
+    Range and rule problems (check_settings) are only warnings and never stop the write.
+    A file is skipped only if one of its #define lines no longer matches exactly once
+    (the file changed since it was read) - writing it then would not be safe."""
+    messages = []
     written = []
     for rel in sorted({BY_NAME[n].file for n in new_values}):
-        if rel in blocked:
-            continue
         text = read_file(rel)
         new_text = text
         for name, value in new_values.items():
@@ -474,9 +473,7 @@ def write_settings(new_values):
                 continue
             match = find_define(new_text, name)
             if match is None:
-                messages.append(
-                    f"{name}: linha do #define nao encontrada em {rel} - ficheiro nao gravado"
-                )
+                messages.append(f"{name}: linha do #define nao encontrada em {rel} - ficheiro nao gravado")
                 new_text = None
                 break
             if parse_value(s, match.group(2)) == value:
@@ -517,6 +514,10 @@ def selftest():
     assert find_define("#define APPS_MIN_BITS (1 + 2)\n", "APPS_MIN_BITS") is None
     match = find_define("#define APPS_MIN_BITS 1118U  // c\r\n", "APPS_MIN_BITS")
     assert match is not None and match.group(2) == "1118"
+    assert axis_bracket([0, 10, 20], -5) == (0, 1, 0.0)
+    assert axis_bracket([0, 10, 20], 25) == (1, 2, 1.0)
+    assert axis_bracket([0, 10, 20], 15) == (1, 2, 0.5)
+    assert axis_bracket([0, 10, 20], 10) == (0, 1, 1.0)
     problems = check_settings(values)
     print(
         f"OK - map {len(data[1])}x{len(data[0])}, {len(values)} settings found, none locked"
@@ -531,6 +532,21 @@ DEFAULT_VIEW = (
     18,
     -145,
 )  # 3D view (elevation, azimuth): speed along the front, accelerator to the side
+LIVE_TRAIL_POINTS = 8  # live trail length in the 3D view (1.6 s at the 200 ms poll), fades out
+LIVE_STRONG, LIVE_WEAK, LIVE_AXIS_BG = "#007a00", "#6fd66f", "#9be89b"  # live cursor colours in the table
+
+
+def axis_bracket(axis, x):
+    """Same as axis_find() in throttle_map.c: (lower index, upper index, fraction between them)."""
+    if x <= axis[0]:
+        return 0, 1, 0.0
+    if x >= axis[-1]:
+        return len(axis) - 2, len(axis) - 1, 1.0
+    i = 0
+    while x > axis[i + 1]:
+        i += 1
+    span = axis[i + 1] - axis[i]
+    return i, i + 1, ((x - axis[i]) / span if span else 0.0)
 
 
 def cell_color(percent):
@@ -553,6 +569,7 @@ def run_gui():
     from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
     from matplotlib.figure import Figure
     from mpl_toolkits.mplot3d import Axes3D
+    from mpl_toolkits.mplot3d.art3d import Line3DCollection
 
     root = tk.Tk()
     root.title("VCU - mapa do acelerador e configuracao")
@@ -594,8 +611,10 @@ def run_gui():
     # Live link to the VCU (tools/vcu_live.py): green dot + highlighted cell = operating point
     live: VcuLive | None = None
     live_marker: Artist | None = None
-    live_cell: tuple[int, int] | None = None
-    live_cell_default_hl = 0
+    live_trail_line: Artist | None = None
+    live_trail: deque[tuple[float, float, float]] = deque(maxlen=LIVE_TRAIL_POINTS)
+    live_marked: dict[tuple[int, int], tuple[str, str | None]] = {}  # cell -> (border colour, axis bg) to restore
+    live_poll_job: str | None = None  # pending poll, cancelled on disconnect so two loops never run
     live_labels: dict[str, tk.Label] = {}
 
     def collect_map():
@@ -607,7 +626,7 @@ def run_gui():
         return apps, speed, table
 
     def refresh_map(_event=None):
-        nonlocal marker, live_marker
+        nonlocal marker, live_marker, live_trail_line
         try:
             apps, speed, table = collect_map()
         except ValueError:
@@ -638,7 +657,7 @@ def run_gui():
         ax3d.set_zlim(-100, 100)
         ax3d.view_init(elev, azim)
         marker = None  # cleared with the axes
-        live_marker = None  # redrawn by the next live poll
+        live_marker = live_trail_line = None  # redrawn by the next live poll
         draw_marker(apps, speed, table)
         fig.tight_layout()
         canvas.draw_idle()
@@ -730,6 +749,11 @@ def run_gui():
             justify="right",
             bg="#e4e4e4" if axis else "white",
             font=("Consolas", 9, "bold" if axis else "normal"),
+            # Fixed 2 px border in the background colour: the live cursor only recolours it,
+            # so the table never changes size while it moves
+            highlightthickness=2,
+            highlightbackground=table_frame.cget("bg"),
+            highlightcolor=table_frame.cget("bg"),
         )
         e.insert(0, value)
         e.grid(row=row + 1, column=col + 1)
@@ -858,41 +882,45 @@ def run_gui():
         status.config(text="Lido", fg="black")
 
     def save_all():
-        problems: list[str] = []
-        written: list[str] = []
-        # Map
+        # 1. Read everything. Only a cell that is not a number stops the save: nothing to write.
         try:
             data = collect_map()
         except ValueError:
-            data = None
-            problems.append("Mapa: ha uma celula que nao e numero")
-        if data is not None:
-            map_errors = validate(*data)
-            try:
-                unchanged = data == read_data()
-            except (OSError, KeyError, ValueError):
-                unchanged = (
-                    False  # Unreadable file: rewrite it from the (valid) editor values
-                )
-            if map_errors:
-                problems += [f"Mapa: {e}" for e in map_errors]
-            elif not unchanged:
-                write_data(*data)
-                written.append(str(DATA_FILE.relative_to(ROOT)))
-        # Settings: only editable ones (found in the file, and safety only when unlocked)
+            messagebox.showerror("Nao gravado", "Mapa: ha uma celula que nao e numero")
+            return
         new_values = {}
+        not_numbers = []
         for name in fields:
             s = BY_NAME[name]
             if loaded.get(name) is None or (s.tab == SAFETY and not unlock.get()):
-                continue
+                continue  # locked (#define not found) or safety tab not unlocked
             try:
                 new_values[name] = field_value(name)
             except ValueError:
-                problems.append(f"{name}: numero invalido")
-        if not any(p.endswith("numero invalido") for p in problems):
-            files, msgs = write_settings(new_values)
-            written += files
-            problems += msgs
+                not_numbers.append(name)
+        if not_numbers:
+            messagebox.showerror("Nao gravado", "Valor que nao e numero: " + ", ".join(not_numbers))
+            return
+
+        # 2. Rules and ranges are warnings only: show them all, the user decides
+        warnings = [f"Mapa: {e}" for e in validate(*data)] + [m for _, m in check_settings(new_values)]
+        if warnings and not messagebox.askyesno(
+            "Avisos", "\n".join(f"- {w}" for w in warnings) + "\n\nGravar mesmo assim?", icon="warning"
+        ):
+            status.config(text="Nao gravado", fg="black")
+            return
+
+        # 3. Write what changed
+        written: list[str] = []
+        try:
+            unchanged = data == read_data()
+        except (OSError, KeyError, ValueError):
+            unchanged = False  # Unreadable file: rewrite it from the editor values
+        if not unchanged:
+            write_data(*data)
+            written.append(str(DATA_FILE.relative_to(ROOT)))
+        files, problems = write_settings(new_values)
+        written += files
         load_settings()
         mark_settings()
         if problems:
@@ -918,42 +946,70 @@ def run_gui():
     tk.Button(bar, text="Vista 3D default", command=reset_view).pack(side="left")
 
     # ------------------------- Live link to the VCU -------------------------
-    def set_live_cell(cell):
-        """Green border on the table cell closest to the live operating point."""
-        nonlocal live_cell, live_cell_default_hl
-        if cell == live_cell:
+    def mark_live(cells):
+        """cells: {(row, col): 'strong' | 'weak' | 'axis'}. Undoes the previous marks first."""
+        if cells.keys() == live_marked.keys():
             return
-        if live_cell in entries:
-            entries[live_cell].config(highlightthickness=live_cell_default_hl)
-        live_cell = cell
-        if cell in entries:
-            live_cell_default_hl = int(entries[cell].cget("highlightthickness"))
-            entries[cell].config(highlightthickness=3, highlightbackground="#00b000", highlightcolor="#00b000")
+        for cell, (border, axis_bg) in live_marked.items():
+            if cell in entries:
+                entries[cell].config(highlightbackground=border, highlightcolor=border)
+                if axis_bg is not None:
+                    entries[cell].config(bg=axis_bg)
+        live_marked.clear()
+        for cell, style in cells.items():
+            if cell not in entries:
+                continue
+            e = entries[cell]
+            live_marked[cell] = (e.cget("highlightbackground"), e.cget("bg") if style == "axis" else None)
+            if style == "axis":
+                e.config(bg=LIVE_AXIS_BG)
+            else:
+                color = LIVE_STRONG if style == "strong" else LIVE_WEAK
+                e.config(highlightbackground=color, highlightcolor=color)
 
     def draw_live(values):
-        """Green dot at the live pedal / speed / map value, and the nearest table cell."""
-        nonlocal live_marker
-        if live_marker is not None:
-            live_marker.remove()
-            live_marker = None
+        """ECU-style live cursor: green dot + trail in 3D; interpolation box and axes in the table."""
+        nonlocal live_marker, live_trail_line
+        for artist in (live_marker, live_trail_line):
+            if artist is not None:
+                artist.remove()
+        live_marker = live_trail_line = None
         pedal = values.get("throttle.pedal_1000")
         speed_now = values.get("throttle.speed_kmh")
         map_now = values.get("throttle.map_1000")
         if pedal is None or speed_now is None or map_now is None:
             return
-        (live_marker,) = ax3d.plot([pedal / 10], [speed_now], [map_now / 10], linestyle="none", marker="o",
+        point = (pedal / 10, speed_now, map_now / 10)
+        live_trail.append(point)
+        if len(live_trail) >= 2:
+            # Fading trail: oldest segment almost transparent, newest strong
+            points = list(live_trail)
+            segments = [[points[k], points[k + 1]] for k in range(len(points) - 1)]
+            colors = [(0.0, 0.6, 0.0, 0.1 + 0.8 * (k + 1) / len(segments)) for k in range(len(segments))]
+            live_trail_line = Line3DCollection(segments, colors=colors, linewidths=1.5, zorder=10)
+            ax3d.add_collection3d(live_trail_line)
+        (live_marker,) = ax3d.plot([point[0]], [point[1]], [point[2]], linestyle="none", marker="o",
                                    markersize=11, markerfacecolor="#00d000", markeredgecolor="black",
                                    markeredgewidth=1.5, zorder=11)
         try:
             apps, speed, _ = collect_map()
         except ValueError:
-            return
-        col = min(range(len(apps)), key=lambda i: abs(apps[i] - pedal)) + 1
-        row = min(range(len(speed)), key=lambda i: abs(speed[i] - speed_now)) + 1
-        set_live_cell((row, col))
+            apps = speed = None
+        if apps and speed:
+            # The 4 cells the VCU interpolates between (same as throttle_map.c), heaviest one strongest
+            c0, c1, fa = axis_bracket(apps, pedal)
+            r0, r1, fs = axis_bracket(speed, speed_now)
+            weights = {(r0 + 1, c0 + 1): (1 - fs) * (1 - fa), (r0 + 1, c1 + 1): (1 - fs) * fa,
+                       (r1 + 1, c0 + 1): fs * (1 - fa), (r1 + 1, c1 + 1): fs * fa}
+            heaviest = max(weights, key=lambda cell: weights[cell])
+            cells = {cell: ("strong" if cell == heaviest else "weak") for cell in weights}
+            cells.update({(0, c0 + 1): "axis", (0, c1 + 1): "axis", (r0 + 1, 0): "axis", (r1 + 1, 0): "axis"})
+            mark_live(cells)
         canvas.draw_idle()
 
     def poll_live():
+        nonlocal live_poll_job
+        live_poll_job = None
         link = live
         if link is None:
             return
@@ -965,20 +1021,25 @@ def run_gui():
         for v in link.variables:
             live_labels[v.expr].config(text=v.text(values[v.expr]))
         draw_live(values)
-        root.after(200, poll_live)
+        live_poll_job = root.after(200, poll_live)
 
     def disconnect_live(message):
-        nonlocal live, live_marker
+        nonlocal live, live_marker, live_trail_line, live_poll_job
+        if live_poll_job is not None:
+            root.after_cancel(live_poll_job)
+            live_poll_job = None
         link = live
         live = None
         if link is not None:
             with contextlib.suppress(Exception):  # probe may already be gone
                 link.close()
-        if live_marker is not None:
-            live_marker.remove()
-            live_marker = None
-            canvas.draw_idle()
-        set_live_cell(None)
+        for artist in (live_marker, live_trail_line):
+            if artist is not None:
+                artist.remove()
+        live_marker = live_trail_line = None
+        live_trail.clear()
+        canvas.draw_idle()
+        mark_live({})
         live_button.config(text="Ligar VCU")
         status.config(text=message, fg="black")
 
