@@ -23,6 +23,10 @@ file, stops a save.
 Needs matplotlib (pip install matplotlib); tkinter comes with Python.
 After saving: rebuild and flash the firmware.
 
+APPS calibration without rebuilding: "Ligar VCU", then "APPS repouso" (pedal released) and
+"APPS a fundo" (pedal fully pressed). Each saves to the VCU flash with openocd and resets
+the VCU, which loads it at boot (see APPS.h).
+
 Map units in the editor: accelerator and current in %, speed in km/h.
 Map units in the file: per mille (0..1000 / -1000..1000), km/h.
 Current > 0 = drive (SetRelCurrent), < 0 = regen (SetRelBrakeCurrent), 0 = coast.
@@ -232,8 +236,11 @@ SETTINGS = [
         100,
         "PAU: tracao permitida na potencia maxima (%)",
     ),
-    Setting(SAFETY, APPS_H, "APPS_MIN_BITS", "int", 0, 4095, "APPS1 a 0 % (bits)"),
-    Setting(SAFETY, APPS_H, "APPS_MAX_BITS", "int", 0, 4095, "APPS1 a 100 % (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_REST_DEADZONE_BITS", "int", 0, 100, "Calibracao flash: zona morta em repouso (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_FULL_MARGIN_BITS", "int", 0, 100, "Calibracao flash: margem a fundo (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_CAL_MIN_TRAVEL_BITS", "int", 1, 4095, "Calibracao flash: curso minimo aceite (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_MIN_BITS", "int", 0, 4095, "Sem calibracao na flash: APPS1 a 0 % (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_MAX_BITS", "int", 0, 4095, "Sem calibracao na flash: APPS1 a 100 % (bits)"),
     Setting(
         SAFETY,
         APPS_H,
@@ -253,7 +260,7 @@ SETTINGS = [
         "Histerese do pedal (bits)",
     ),
     Setting(
-        SAFETY, APPS_H, "APPS2_OFFSET", "int", 0, 4095, "APPS2 -> APPS1: offset (bits)"
+        SAFETY, APPS_H, "APPS2_OFFSET", "int", 0, 4095, "Sem calibracao na flash: APPS2 -> APPS1 offset (bits)"
     ),
     Setting(
         SAFETY,
@@ -262,7 +269,7 @@ SETTINGS = [
         "int",
         500,
         4000,
-        "APPS2 -> APPS1: ganho x1000",
+        "APPS2 -> APPS1: ganho x1000 (calibracao flash aceite a +-25 %)",
     ),
     Setting(
         SAFETY,
@@ -434,6 +441,11 @@ def check_settings(values):
                     f"APPS_TOLERANCE > 10 % do curso do pedal ({(hi - lo) / 10:.0f} bits) - regra",
                 )
             )
+    travel, dead, margin = get("APPS_CAL_MIN_TRAVEL_BITS"), get("APPS_REST_DEADZONE_BITS"), get("APPS_FULL_MARGIN_BITS")
+    if None not in (travel, dead, margin) and travel <= dead + margin:
+        errors.append(
+            (APPS_H, "APPS_CAL_MIN_TRAVEL_BITS tem de ser maior que zona morta + margem (senao o firmware nao compila)")
+        )
     fade, cutoff = get("THROTTLE_REGEN_FADE_START_V"), get("THROTTLE_REGEN_CUTOFF_V")
     if None not in (fade, cutoff) and cutoff > 0 and fade >= cutoff:
         errors.append(
@@ -448,6 +460,28 @@ def check_settings(values):
             (PAU, "PAU_POWER_LIMIT_THRESHOLD_W tem de ser menor que PAU_MAX_POWER_W (senao o firmware nao compila)")
         )
     return errors
+
+
+APPS_CAL_SETTINGS = ("APPS_REST_DEADZONE_BITS", "APPS_FULL_MARGIN_BITS", "APPS_CAL_MIN_TRAVEL_BITS",
+                     "APPS2_GAIN_X1000", "APPS_TOLERANCE")
+
+
+def apps_cal_result(cal, values):
+    """What APPS_Init() in APPS.c makes of a flash record {"rest"/"full": (apps1, apps2)}:
+    (0 % bits, 100 % bits, APPS2 gain x1000, [problems]). Same checks as the firmware - a
+    record it rejects is not used (the VCU falls back to the APPS.h values)."""
+    (a1r, a2r), (a1f, a2f) = cal["rest"], cal["full"]
+    dead, margin, travel, ref_gain, tol = (values[n] for n in APPS_CAL_SETTINGS)
+    problems = []
+    if a1f - a1r < travel or a2f - a2r < travel:
+        problems.append(f"Curso do pedal menor que {travel} bits (APPS_CAL_MIN_TRAVEL_BITS): a VCU rejeita")
+    gain = (a2f - a2r) * 1000 // (a1f - a1r) if a1f > a1r else 0
+    if not ref_gain * 3 // 4 <= gain <= ref_gain * 5 // 4:
+        problems.append(f"Ganho APPS2/APPS1 {gain / 1000:.3f} longe de {ref_gain / 1000:.3f} (+-25 %): a VCU rejeita")
+    lo, hi = a1r + dead, a1f - margin
+    if hi > lo and tol > (hi - lo) / 10:
+        problems.append(f"APPS_TOLERANCE > 10 % do curso do pedal ({(hi - lo) / 10:.0f} bits) - regra")
+    return lo, hi, gain, problems
 
 
 def format_value(setting, value):
@@ -518,6 +552,16 @@ def selftest():
     assert axis_bracket([0, 10, 20], 25) == (1, 2, 1.0)
     assert axis_bracket([0, 10, 20], 15) == (1, 2, 0.5)
     assert axis_bracket([0, 10, 20], 10) == (0, 1, 1.0)
+    from vcu_live import pack_apps_cal, parse_apps_cal
+
+    cal = {"rest": (1113, 2200), "full": (1375, 2705)}
+    raw = pack_apps_cal(cal)
+    assert parse_apps_cal(raw) == cal and parse_apps_cal(b"\xff" * len(raw)) is None
+    assert parse_apps_cal(raw[:5] + bytes([raw[5] ^ 1]) + raw[6:]) is None, "CRC must catch a flipped bit"
+    known = dict(values, APPS_REST_DEADZONE_BITS=9, APPS_FULL_MARGIN_BITS=8, APPS_CAL_MIN_TRAVEL_BITS=100,
+                 APPS2_GAIN_X1000=1928, APPS_TOLERANCE=20)
+    assert apps_cal_result(cal, known) == (1122, 1367, 1927, [])
+    assert len(apps_cal_result({"rest": (1113, 2200), "full": (1150, 2270)}, known)[3]) == 2  # short travel
     problems = check_settings(values)
     print(
         f"OK - map {len(data[1])}x{len(data[0])}, {len(values)} settings found, none locked"
@@ -533,7 +577,12 @@ DEFAULT_VIEW = (
     -145,
 )  # 3D view (elevation, azimuth): speed along the front, accelerator to the side
 LIVE_TRAIL_POINTS = 8  # live trail length in the 3D view (1.6 s at the 200 ms poll), fades out
+LIVE_LOST_TIMEOUT_S = 3  # reads failing this long (SWD noise) -> reopen the ST-LINK; gives up only if that fails
 LIVE_STRONG, LIVE_WEAK, LIVE_AXIS_BG = "#007a00", "#6fd66f", "#9be89b"  # live cursor colours in the table
+APPS_CAL_NAMES = {"rest": "repouso", "full": "a fundo"}
+APPS_CAL_SAFE_STATES = ("STATE_INIT", "STATE_SHUTDOWN", "STATE_STANDBY")  # TS off: the VCU may be reset
+APPS_CAL_SAMPLES = 10  # readings over ~1 s, averaged
+APPS_CAL_MAX_SPREAD = 4  # APPS1 bits the pedal may move while measuring (APPS2: 2x, it has ~2x the scale)
 
 
 def axis_bracket(axis, x):
@@ -615,6 +664,7 @@ def run_gui():
     live_trail: deque[tuple[float, float, float]] = deque(maxlen=LIVE_TRAIL_POINTS)
     live_marked: dict[tuple[int, int], tuple[str, str | None]] = {}  # cell -> (border colour, axis bg) to restore
     live_poll_job: str | None = None  # pending poll, cancelled on disconnect so two loops never run
+    live_failing_since: float | None = None  # time.monotonic() of the first failed read in a row
     live_labels: dict[str, tk.Label] = {}
 
     def collect_map():
@@ -1008,23 +1058,41 @@ def run_gui():
         canvas.draw_idle()
 
     def poll_live():
-        nonlocal live_poll_job
+        nonlocal live_poll_job, live_failing_since
         live_poll_job = None
         link = live
         if link is None:
             return
         try:
             values = link.read()
-        except Exception as err:  # noqa: BLE001 - probe unplugged, USB/pyocd error: message, not a crash
-            disconnect_live(f"Ligacao a VCU perdida: {err}")
+        except Exception:  # noqa: BLE001 - SWD noise, probe unplugged, USB/pyocd error: retry, not a crash
+            # Noise on SWCLK/SWDIO (inverters) makes single reads fail: keep the last values and retry
+            now = time.monotonic()
+            live_failing_since = live_failing_since or now
+            if now - live_failing_since >= LIVE_LOST_TIMEOUT_S:
+                # Still failing: reopen the ST-LINK. Only if that fails (VCU off, cable out) give up.
+                try:
+                    link.close()
+                    link.connect()
+                except Exception as err:  # noqa: BLE001 - any connect problem becomes a message
+                    disconnect_live(f"Ligacao a VCU perdida: {err}")
+                    return
+                live_failing_since = None
+            status.config(text=f"Sem leitura da VCU ha {now - (live_failing_since or now):.1f} s "
+                               "(ruido no SWD?) - a tentar...", fg="#c06000")
+            live_poll_job = root.after(200, poll_live)
             return
+        if live_failing_since is not None:
+            live_failing_since = None
+            status.config(text="Ligacao a VCU recuperada", fg="green")
         for v in link.variables:
             live_labels[v.expr].config(text=v.text(values[v.expr]))
         draw_live(values)
         live_poll_job = root.after(200, poll_live)
 
     def disconnect_live(message):
-        nonlocal live, live_marker, live_trail_line, live_poll_job
+        nonlocal live, live_marker, live_trail_line, live_poll_job, live_failing_since
+        live_failing_since = None
         if live_poll_job is not None:
             root.after_cancel(live_poll_job)
             live_poll_job = None
@@ -1069,11 +1137,84 @@ def run_gui():
             tk.Label(live_frame, text=f"{expr}: nao existe no ELF", fg="gray").grid(
                 row=len(link.variables) + j, column=0, columnspan=2, sticky="w")
         live_button.config(text="Desligar VCU")
-        status.config(text="Ligado a VCU (ST-LINK) - so leitura", fg="green")
+        status.config(text="Ligado a VCU (ST-LINK) - so leitura, exceto calibracao APPS", fg="green")
         poll_live()
 
     live_button = tk.Button(bar, text="Ligar VCU", width=12, command=toggle_live)
     live_button.pack(side="left", padx=4)
+
+    apps_measured: dict[str, tuple[int, int]] = {}  # "rest"/"full" -> (APPS1, APPS2) measured this session
+
+    def calibrate_apps(point):
+        """Measure one APPS point (pedal released / fully pressed) and save it to the VCU flash."""
+        title, name = "Calibracao APPS", APPS_CAL_NAMES[point]
+        link = live
+        if link is None:
+            messagebox.showinfo(title, "Liga primeiro a VCU ('Ligar VCU').")
+            return
+        settings = read_settings()
+        if any(settings[n] is None for n in APPS_CAL_SETTINGS):
+            messagebox.showerror(title, "APPS.h bloqueado (ver separador Calibracao) - nao da para verificar a calibracao.")
+            return
+        try:
+            state_var = next((v for v in link.variables if v.expr == "current_state"), None)
+            state = state_var.text(link.read()[state_var.expr]) if state_var else "desconhecido"
+            if state not in APPS_CAL_SAFE_STATES:
+                messagebox.showerror(title, f"A VCU esta em {state}. Gravar a calibracao faz reset a VCU: so com o TS "
+                                            f"desligado ({', '.join(APPS_CAL_SAFE_STATES)}).")
+                return
+            status.config(text=f"A medir APPS {name} - nao mexas no pedal...", fg="black")
+            root.update_idletasks()
+            samples = []
+            for _ in range(APPS_CAL_SAMPLES):
+                values = link.read()
+                samples.append((values["apps_data.state.apps1_raw"], values["apps_data.state.apps2_raw"]))
+                time.sleep(0.1)
+            stored = link.read_apps_cal()
+        except Exception as err:  # noqa: BLE001 - probe unplugged, USB/pyocd error: message, not a crash
+            disconnect_live(f"Ligacao a VCU perdida: {err}")
+            return
+        apps1, apps2 = zip(*samples)
+        if max(apps1) - min(apps1) > APPS_CAL_MAX_SPREAD or max(apps2) - min(apps2) > 2 * APPS_CAL_MAX_SPREAD:
+            status.config(text=f"APPS {name}: pedal a mexer (APPS1 {min(apps1)}..{max(apps1)}) - repete", fg="red")
+            return
+        apps_measured[point] = (round(sum(apps1) / len(apps1)), round(sum(apps2) / len(apps2)))
+        # The other point: the record already in flash, else one measured earlier in this session
+        cal = {**apps_measured, **(stored or {}), point: apps_measured[point]}
+        other = "full" if point == "rest" else "rest"
+        if other not in cal:
+            status.config(text=f"APPS {name} medido (APPS1 {cal[point][0]}, APPS2 {cal[point][1]}). Sem calibracao "
+                               f"na flash: mede agora 'APPS {APPS_CAL_NAMES[other]}'", fg="black")
+            return
+        lo, hi, gain, problems = apps_cal_result(cal, settings)
+        text = (f"Gravar a calibracao do APPS na flash da VCU?\n\n"
+                f"Repouso:  APPS1 {cal['rest'][0]}, APPS2 {cal['rest'][1]}\n"
+                f"A fundo:  APPS1 {cal['full'][0]}, APPS2 {cal['full'][1]}\n"
+                f"-> 0 % = {lo} bits, 100 % = {hi} bits, ganho APPS2 {gain / 1000:.3f}\n\n")
+        if problems:
+            text += "ATENCAO:\n" + "\n".join(f"- {p}" for p in problems) + "\n\n"
+        text += "A VCU vai reiniciar (openocd, alguns segundos)."
+        if not messagebox.askyesno(title, text, icon="warning" if problems else "question") or live is not link:
+            return  # declined, or the link dropped while the dialog was open
+        status.config(text="A gravar a calibracao APPS (openocd)...", fg="black")
+        root.update_idletasks()
+        try:
+            link.write_apps_cal(cal)
+            values = link.read()
+        except Exception as err:  # noqa: BLE001 - openocd/pyocd problem: message, not a crash
+            disconnect_live("Calibracao APPS: erro (ver janela)")
+            messagebox.showerror(title, str(err))
+            return
+        active = (values["apps_data.config.min_value"], values["apps_data.config.max_value"])
+        if values["apps_data.config.from_flash"] and active == (lo, hi):
+            status.config(text=f"Calibracao APPS gravada e ativa: 0 % = {lo}, 100 % = {hi} bits", fg="green")
+        else:
+            status.config(text="Calibracao APPS gravada mas REJEITADA pela VCU - esta a usar os valores do APPS.h",
+                          fg="red")
+
+    for point in APPS_CAL_NAMES:
+        tk.Button(bar, text=f"APPS {APPS_CAL_NAMES[point]}", command=lambda p=point: calibrate_apps(p)).pack(
+            side="left", padx=2)
 
     def on_close():
         disconnect_live("")

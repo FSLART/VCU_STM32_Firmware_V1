@@ -45,8 +45,13 @@ _Min_Stack_Size = 0x400; /* required amount of stack */
 MEMORY
 {
   RAM    (xrw)    : ORIGIN = 0x20000000,   LENGTH = 512K
-  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 1024K
+  FLASH    (rx)    : ORIGIN = 0x8000000,   LENGTH = 768K
+  /* APPS calibration, written by tools/throttle_map_editor.py (openocd). 0x080C0000-0x080FFFFF
+     is sector 7 (single bank) or sectors 18-19 (dual bank): whole sectors either way. Nothing is
+     linked here, so flashing the firmware from CubeIDE never erases it. */
+  APPS_CAL (r)    : ORIGIN = 0x80C0000,   LENGTH = 256K
 }
+apps_cal_flash = ORIGIN(APPS_CAL);  /* APPS_FlashCal_t record, see APPS.h */
 
 /* Sections */
 SECTIONS

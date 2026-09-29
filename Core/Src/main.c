@@ -1150,19 +1150,6 @@ void execute_10ms_tasks(void) {
 		last_telemetry_send_time = current_telemetry_time;
 	}
 
-#if CALIBRATE_APPS
-    // If calibration is in progress, update it
-    if (APPS_IsCalibrating()) {
-        bool calibration_complete = APPS_Calibrate(apps1_avg, apps2_avg);
-        if (calibration_complete) {
-            // Optionally, automatically apply the calibration
-            uint16_t min, max, tolerance;
-            APPS_GetCalibrationValues(&min, &max, &tolerance);
-            APPS_Init(min, max, tolerance);
-        }
-    }
-#endif
-
 #if print_apps
     APPS_PrintStatus();
 #endif
@@ -1339,7 +1326,7 @@ int main(void) {
 	MX_USART3_UART_Init();
 	MX_TIM2_Init();
 	/* USER CODE BEGIN 2 */
-	APPS_Init(APPS_MIN_BITS, APPS_MAX_BITS, APPS_TOLERANCE);  // Initialize APPS (calibration in APPS.h)
+	APPS_Init();  // APPS calibration: flash record (tools/throttle_map_editor.py) or APPS.h
 	HAL_TIM_Base_Start_IT(&htim2);
 
 	can_driver_init();
@@ -1357,15 +1344,10 @@ int main(void) {
 
 	HAL_ADC_Start_DMA(&hadc1, (uint32_t*) ADC1_VAL, 4);
 	// HAL_ADC_Start_DMA(&hadc2, ADC2_APPS, 2);  // Start ADC2 for APPS
-	//  Calibrate APPS
 
 	bspd_init(&bspd_state);
 	res.signal = RES_SIGNAl_DEFAULT_1;  // start with a value different than 0 to avoid emergency state
 	DBG_PRINTF("\n\n\n\n\n======================== RESET ========================\n\n\n\n\n\r");
-
-#if CALIBRATE_APPS
-    APPS_StartCalibration();
-#endif
 
 	while (1) {
 		/* USER CODE END WHILE */

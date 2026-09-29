@@ -14,6 +14,16 @@
 /* ========================= PEDAL CALIBRATION ======================== */
 // All values in APPS1 bits. The throttle is taken from APPS1 only; APPS2 is only used
 // for the disagreement (plausibility) check.
+//
+// Normally the calibration comes from FLASH: with the VCU connected, the buttons
+// "APPS repouso" / "APPS a fundo" in tools/throttle_map_editor.py save the raw readings
+// (APPS_FlashCal_t below) and reset the VCU. APPS_Init() turns them into the 0%/100% points
+// and the APPS2 scale. APPS_MIN_BITS, APPS_MAX_BITS, APPS2_OFFSET and APPS2_GAIN_X1000 are
+// only used when there is no valid record in flash (apps_data.config.from_flash = 0).
+
+#define APPS_REST_DEADZONE_BITS    9U  // Flash calibration: 0% point = measured rest + this
+#define APPS_FULL_MARGIN_BITS      8U  // Flash calibration: 100% point = measured full pedal - this
+#define APPS_CAL_MIN_TRAVEL_BITS 100U  // Flash record rejected if full - rest is smaller (either sensor)
 
 #define APPS_MIN_BITS   1265U  // 0% throttle point  (rest measured 1113 + 9 bits dead zone)
 #define APPS_MAX_BITS   1394U  // 100% throttle point (full pedal measured 1375, -8 bits margin for drift)
@@ -32,12 +42,25 @@
 #define APPS2_OFFSET       55U  // APPS2 reading where APPS1 would be 0
 #define APPS2_GAIN_X1000 1928U  // APPS2 / APPS1 slope, x1000
 
+// Record at the start of the reserved flash block (STM32F767VGTX_FLASH.ld, 0x080C0000).
+// Written only by tools/vcu_live.py (write_apps_cal) - keep both layouts the same.
+#define APPS_CAL_MAGIC 0x43505041U  // "APPC"
+typedef struct {
+    uint32_t magic;       // APPS_CAL_MAGIC
+    uint16_t apps1_rest;  // APPS1 raw, pedal released
+    uint16_t apps1_full;  // APPS1 raw, pedal fully pressed
+    uint16_t apps2_rest;  // APPS2 raw, pedal released
+    uint16_t apps2_full;  // APPS2 raw, pedal fully pressed
+    uint32_t crc;         // CRC32 of the 12 bytes above (same as Python zlib.crc32)
+} APPS_FlashCal_t;
+
+extern const APPS_FlashCal_t apps_cal_flash;  // Defined by the linker script
+
 /* ====================== FILTERING AND SAFETY ======================== */
-// Used by main.c (moving average, CAN timeout check and calibration mode).
+// Used by main.c (moving average and CAN timeout check).
 
 #define APPS_MA_WINDOW_SIZE     5  // Moving average window, in samples of the ~100 Hz APPS timer
 #define MAX_APPS_TIMEOUT_MS   250  // No APPS CAN frame for this long -> throttle forced to 0
-#define CALIBRATE_APPS          0  // 1 = run APPS_Calibrate() and apply the measured min/max/tolerance
 
 // Error types
 typedef enum {
@@ -59,9 +82,12 @@ typedef struct {
 
 // Configuration structure
 typedef struct {
-    uint16_t min_value;  // ADC value at 0% throttle
-    uint16_t max_value;  // ADC value at 100% throttle
-    uint16_t tolerance;  // Tolerance in ADC bits
+    uint16_t min_value;         // ADC value at 0% throttle
+    uint16_t max_value;         // ADC value at 100% throttle
+    uint16_t tolerance;         // Tolerance in ADC bits
+    int16_t apps2_offset;       // APPS2 reading where APPS1 would be 0
+    uint16_t apps2_gain_x1000;  // APPS2 / APPS1 slope, x1000
+    bool from_flash;            // true = calibration from the flash record, false = APPS.h values
 } APPS_Config_t;
 
 // Internal runtime state (sensor readings, calculations, error tracking)
@@ -83,39 +109,23 @@ typedef struct {
     uint32_t error_start_time;    // Time when error was first detected
 } APPS_State_t;
 
-// Calibration state (populated during APPS_Calibrate())
-typedef struct {
-    bool is_calibrating;           // Flag to indicate calibration in progress
-    bool is_complete;              // Flag to indicate calibration complete
-    uint32_t start_time;           // Start time of calibration
-    uint16_t apps1_min;            // Min value of APPS1 observed during calibration
-    uint16_t apps1_max;            // Max value of APPS1 observed during calibration
-    uint16_t apps2_min;            // Min value of APPS2 observed during calibration
-    uint16_t apps2_max;            // Max value of APPS2 observed during calibration
-    uint16_t sample_count;         // Number of samples collected during calibration
-    uint16_t suggested_min;        // Suggested min value for calibration
-    uint16_t suggested_max;        // Suggested max value for calibration
-    uint16_t suggested_tolerance;  // Suggested tolerance for calibration
-} APPS_CalibState_t;
-
 // Top-level instance: add this to Live Expressions in STM32CubeIDE for full visibility
 typedef struct {
     APPS_Config_t config;      // Calibration limits and tolerance
     APPS_State_t state;        // Runtime values: raws, mean, percentages, errors
-    APPS_CalibState_t calib;   // Calibration process data
 } APPS_Instance_t;
 
 // Global instance — accessible from anywhere that includes APPS.h
 extern APPS_Instance_t apps_data;
 
 // Core functions
-void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance);
+void APPS_Init(void);  // Loads the calibration: flash record if valid, else APPS.h
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);
 
 /**
  * @brief Convert an APPS1 reading to throttle percentage
- * @param apps1_bits APPS1 value (same units as APPS_MIN_BITS / APPS_MAX_BITS)
- * @return 0..100 %, straight line between APPS_MIN_BITS (0%) and APPS_MAX_BITS (100%),
+ * @param apps1_bits APPS1 value (same units as apps_data.config.min_value / max_value)
+ * @return 0..100 %, straight line between config.min_value (0%) and config.max_value (100%),
  *         clamped. No hysteresis and no error checks - it always converts.
  */
 uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits);
@@ -123,39 +133,5 @@ APPS_ErrorType_t APPS_GetErrorType(uint16_t apps1, uint16_t apps2);
 void APPS_PrintStatus(void);
 APPS_Config_t APPS_GetConfig(void);
 bool APPS_SetConfig(APPS_Config_t config);
-
-/**
- * @brief Starts APPS calibration
- */
-void APPS_StartCalibration(void);
-
-/**
- * @brief Updates APPS calibration with new sensor values
- *
- * Call this function regularly from main loop with ADC values to perform calibration
- *
- * @param apps1 Current APPS1 sensor value
- * @param apps2 Current APPS2 sensor value
- * @return true if calibration is complete, false if still in progress
- */
-bool APPS_Calibrate(uint16_t apps1, uint16_t apps2);
-
-/**
- * @brief Checks if APPS calibration is in progress
- *
- * @return true if calibration is in progress, false otherwise
- */
-bool APPS_IsCalibrating(void);
-
-/**
- * @brief Gets the suggested calibration values
- *
- * @param min_value Pointer to store suggested min value
- * @param max_value Pointer to store suggested max value
- * @param tolerance Pointer to store suggested tolerance
- * @return true if values are valid (calibration complete), false otherwise
- */
-bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
-                               uint16_t* tolerance);
 
 #endif /* APPS_H */

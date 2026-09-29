@@ -105,6 +105,7 @@ stateDiagram-v2
 - **Debouncing**: 100 ms error timeout — error must persist before triggering cutoff
 - **CAN timeout**: 50 ms — if APPS CAN frame is lost, throttle zeros
 - **Moving average filter**: window size 5 for noise rejection
+- **Calibration in flash**: `tools/throttle_map_editor.py` → "Ligar VCU" → "APPS repouso" / "APPS a fundo" saves the raw readings to the reserved flash block at `0x080C0000` (openocd) and resets the VCU; `APPS_Init()` loads it at boot. Invalid or erased record (magic/CRC/range checks) → fixed values in `APPS.h`. Flashing the firmware from CubeIDE does not erase it; a full chip erase does
 
 ### digital protection for BSPD (Brake System Plausibility Device)
 

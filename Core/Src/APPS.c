@@ -14,6 +14,7 @@
 #include "APPS.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,9 @@
 #endif
 #if APPS_MA_WINDOW_SIZE < 1
 #error "APPS.h: APPS_MA_WINDOW_SIZE must be at least 1"
+#endif
+#if APPS_CAL_MIN_TRAVEL_BITS <= APPS_REST_DEADZONE_BITS + APPS_FULL_MARGIN_BITS
+#error "APPS.h: APPS_CAL_MIN_TRAVEL_BITS must be greater than APPS_REST_DEADZONE_BITS + APPS_FULL_MARGIN_BITS"
 #endif
 
 /* ---------------------- Constants ---------------------- */
@@ -78,17 +82,60 @@ static inline void calculate_functional_range(void) {
 }
 
 /**
- * @brief Initializes APPS module with calibration values
- *
- * @param min_value Minimum ADC value (0% throttle position)
- * @param max_value Maximum ADC value (100% throttle position)
- * @param tolerance Tolerance in ADC bits for error detection
+ * @brief CRC32, same result as Python zlib.crc32 (tools/vcu_live.py writes the record with it)
  */
-void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
-    // Store configuration
-    apps_data.config.min_value = min_value;
-    apps_data.config.max_value = max_value;
-    apps_data.config.tolerance = tolerance;
+static uint32_t crc32(const uint8_t* data, size_t len) {
+    uint32_t crc = 0xFFFFFFFFu;
+    while (len--) {
+        crc ^= *data++;
+        for (int bit = 0; bit < 8; bit++) {
+            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
+        }
+    }
+    return ~crc;  // crc32("123456789") = 0xCBF43926
+}
+
+/**
+ * @brief Applies the flash calibration record (APPS_FlashCal_t) if it is valid
+ *
+ * Rejected (returns false, config untouched) when the block is erased or corrupted
+ * (magic/CRC), a reading is outside the valid ADC range, the pedal travel is shorter than
+ * APPS_CAL_MIN_TRAVEL_BITS on either sensor, or the APPS2/APPS1 slope is more than 25 %
+ * away from APPS2_GAIN_X1000 (one sensor wrong while calibrating).
+ */
+static bool load_flash_calibration(void) {
+    const APPS_FlashCal_t* cal = &apps_cal_flash;
+    if (cal->magic != APPS_CAL_MAGIC ||
+        cal->crc != crc32((const uint8_t*)cal, offsetof(APPS_FlashCal_t, crc))) {
+        return false;
+    }
+    if (cal->apps1_rest < APPS_MIN_VALID_VALUE || cal->apps2_rest < APPS_MIN_VALID_VALUE ||
+        cal->apps1_full > APPS_MAX_VALID_VALUE || cal->apps2_full > APPS_MAX_VALID_VALUE ||
+        cal->apps1_full < cal->apps1_rest + APPS_CAL_MIN_TRAVEL_BITS ||
+        cal->apps2_full < cal->apps2_rest + APPS_CAL_MIN_TRAVEL_BITS) {
+        return false;
+    }
+    uint32_t gain = (uint32_t)(cal->apps2_full - cal->apps2_rest) * 1000u / (cal->apps1_full - cal->apps1_rest);
+    if (gain < APPS2_GAIN_X1000 * 3u / 4u || gain > APPS2_GAIN_X1000 * 5u / 4u) {
+        return false;
+    }
+    apps_data.config.min_value = cal->apps1_rest + APPS_REST_DEADZONE_BITS;
+    apps_data.config.max_value = cal->apps1_full - APPS_FULL_MARGIN_BITS;
+    apps_data.config.apps2_gain_x1000 = (uint16_t)gain;
+    apps_data.config.apps2_offset = (int16_t)((int32_t)cal->apps2_rest - (int32_t)(cal->apps1_rest * gain / 1000u));
+    return true;
+}
+
+/**
+ * @brief Initializes APPS module: calibration from the flash record if valid, else APPS.h
+ */
+void APPS_Init(void) {
+    apps_data.config.min_value = APPS_MIN_BITS;
+    apps_data.config.max_value = APPS_MAX_BITS;
+    apps_data.config.tolerance = APPS_TOLERANCE;
+    apps_data.config.apps2_offset = APPS2_OFFSET;
+    apps_data.config.apps2_gain_x1000 = APPS2_GAIN_X1000;
+    apps_data.config.from_flash = load_flash_calibration();
 
     // Calculate functional range based on configuration
     calculate_functional_range();
@@ -100,7 +147,7 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
     apps_data.state.apps2_raw = 0;
     apps_data.state.apps2_adjusted = 0;
     apps_data.state.mean = 0;
-    apps_data.state.mean_held = min_value;
+    apps_data.state.mean_held = apps_data.config.min_value;
     apps_data.state.percentage = 0;
     apps_data.state.percentage_1000 = 0;
 }
@@ -119,9 +166,10 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
  * @return APPS_Result_t Structure with throttle position and error status
  */
 uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits) {
-    if (apps1_bits <= APPS_MIN_BITS) return 0;
-    if (apps1_bits >= APPS_MAX_BITS) return 100;
-    return (uint8_t)(((uint32_t)(apps1_bits - APPS_MIN_BITS) * 100u) / (APPS_MAX_BITS - APPS_MIN_BITS));
+    uint16_t min = apps_data.config.min_value, max = apps_data.config.max_value;
+    if (apps1_bits <= min) return 0;
+    if (apps1_bits >= max) return 100;
+    return (uint8_t)(((uint32_t)(apps1_bits - min) * 100u) / (max - min));
 }
 
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
@@ -131,9 +179,10 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     apps_data.state.apps1_raw = apps1;
     apps_data.state.apps2_raw = apps2;
 
-    // Convert APPS2 to APPS1 scale (see APPS2_OFFSET / APPS2_GAIN_X1000)
-    uint32_t apps2_above_offset = (apps2 > APPS2_OFFSET) ? (uint32_t)(apps2 - APPS2_OFFSET) : 0u;
-    apps_data.state.apps2_adjusted = (uint16_t)(apps2_above_offset * 1000u / APPS2_GAIN_X1000);
+    // Convert APPS2 to APPS1 scale (config.apps2_offset / apps2_gain_x1000, see APPS_Init)
+    int32_t apps2_above_offset = (int32_t)apps2 - apps_data.config.apps2_offset;
+    apps_data.state.apps2_adjusted = (apps2_above_offset > 0)
+        ? (uint16_t)((uint32_t)apps2_above_offset * 1000u / apps_data.config.apps2_gain_x1000) : 0u;
 
     // Disagreement tracking for calibration (Live Expressions)
     apps_data.state.disagreement = (uint16_t)abs((int)apps1 - (int)apps_data.state.apps2_adjusted);
@@ -358,116 +407,4 @@ void APPS_PrintStatus(void) {
         apps_data.config.max_value,
         apps_data.config.tolerance,
         apps_data.state.functional_range);
-}
-
-/* ---------------------- Calibration Functions ---------------------- */
-
-/**
- * @brief Starts APPS calibration
- *
- * Initializes the calibration state and begins collecting min/max
- * values from APPS sensors over a 10-second period.
- */
-void APPS_StartCalibration(void) {
-    apps_data.calib.is_calibrating = true;
-    apps_data.calib.is_complete = false;
-    apps_data.calib.start_time = HAL_GetTick();
-    apps_data.calib.apps1_min = UINT16_MAX;
-    apps_data.calib.apps1_max = 0;
-    apps_data.calib.apps2_min = UINT16_MAX;
-    apps_data.calib.apps2_max = 0;
-    apps_data.calib.sample_count = 0;
-
-    DBG_PRINTF("APPS Calibration started. Press and release pedal several times over the next 10 seconds...\n");
-}
-
-/**
- * @brief Updates APPS calibration with new sensor values
- *
- * Call this function regularly from main loop with ADC values to perform calibration.
- * Captures min/max values and calculates average delta between sensors.
- *
- * @param apps1 Current APPS1 sensor value
- * @param apps2 Current APPS2 sensor value
- * @return true if calibration is complete, false if still in progress
- */
-bool APPS_Calibrate(uint16_t apps1, uint16_t apps2) {
-    // If not calibrating or already complete, do nothing
-    if (!apps_data.calib.is_calibrating || apps_data.calib.is_complete) {
-        return apps_data.calib.is_complete;
-    }
-
-    uint32_t current_time = HAL_GetTick();
-
-    // Check if calibration period is over
-    if (current_time - apps_data.calib.start_time >= 10000) {  // 10 seconds
-        // Calculate suggested values
-        apps_data.calib.suggested_min = apps_data.calib.apps1_min;
-        apps_data.calib.suggested_max = apps_data.calib.apps1_max;
-        apps_data.calib.suggested_tolerance = 50;  // Default suggested tolerance
-
-        // Print results
-        DBG_PRINTF("\nAPPS Calibration Results:\n");
-        DBG_PRINTF("APPS1 - Min: %u, Max: %u (Range: %u)\n",
-               apps_data.calib.apps1_min, apps_data.calib.apps1_max,
-               apps_data.calib.apps1_max - apps_data.calib.apps1_min);
-        DBG_PRINTF("APPS2 - Min: %u, Max: %u (Range: %u)\n",
-               apps_data.calib.apps2_min, apps_data.calib.apps2_max,
-               apps_data.calib.apps2_max - apps_data.calib.apps2_min);
-
-        // Print calibration recommendations
-        DBG_PRINTF("\nRecommended Calibration Values:\n");
-        DBG_PRINTF("min_value: %u\n", apps_data.calib.suggested_min);
-        DBG_PRINTF("max_value: %u\n", apps_data.calib.suggested_max);
-        DBG_PRINTF("tolerance: %u (adjust based on sensor stability)\n", apps_data.calib.suggested_tolerance);
-
-        DBG_PRINTF("\nUse these values with APPS_Init(min_value, max_value, tolerance)\n");
-
-        apps_data.calib.is_calibrating = false;
-        apps_data.calib.is_complete = true;
-        return true;
-    }
-
-    // Continue collecting data
-    // Update min/max for APPS1
-    if (apps1 < apps_data.calib.apps1_min && apps1 > APPS_MIN_VALID_VALUE) apps_data.calib.apps1_min = apps1;
-    if (apps1 > apps_data.calib.apps1_max && apps1 < APPS_MAX_VALID_VALUE) apps_data.calib.apps1_max = apps1;
-
-    // Update min/max for APPS2
-    if (apps2 < apps_data.calib.apps2_min && apps2 > APPS_MIN_VALID_VALUE) apps_data.calib.apps2_min = apps2;
-    if (apps2 > apps_data.calib.apps2_max && apps2 < APPS_MAX_VALID_VALUE) apps_data.calib.apps2_max = apps2;
-
-    apps_data.calib.sample_count++;
-
-    return false;
-}
-
-/**
- * @brief Checks if APPS calibration is in progress
- *
- * @return true if calibration is in progress, false otherwise
- */
-bool APPS_IsCalibrating(void) {
-    return apps_data.calib.is_calibrating;
-}
-
-/**
- * @brief Gets the suggested calibration values
- *
- * @param min_value Pointer to store suggested min value
- * @param max_value Pointer to store suggested max value
- * @param tolerance Pointer to store suggested tolerance
- * @return true if values are valid (calibration complete), false otherwise
- */
-bool APPS_GetCalibrationValues(uint16_t* min_value, uint16_t* max_value,
-                               uint16_t* tolerance) {
-    if (!apps_data.calib.is_complete) {
-        return false;
-    }
-
-    if (min_value) *min_value = apps_data.calib.suggested_min;
-    if (max_value) *max_value = apps_data.calib.suggested_max;
-    if (tolerance) *tolerance = apps_data.calib.suggested_tolerance;
-
-    return true;
 }
