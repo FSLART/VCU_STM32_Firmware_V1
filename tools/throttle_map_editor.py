@@ -23,9 +23,12 @@ file, stops a save.
 Needs matplotlib (pip install matplotlib); tkinter comes with Python.
 After saving: rebuild and flash the firmware.
 
-APPS calibration without rebuilding: "Ligar VCU", then "APPS repouso" (pedal released) and
-"APPS a fundo" (pedal fully pressed). Each saves to the VCU flash with openocd and resets
-the VCU, which loads it at boot (see APPS.h).
+APPS calibration: "Ligar VCU", then "Calibrar APPS" measures APPS1 with the pedal fully
+pressed and released and writes APPS_MIN_BITS / APPS_MAX_BITS in APPS.h. Then rebuild and
+flash from CubeIDE.
+
+"Guardar config" / "Carregar config": the whole setup (map + every setting) in a JSON .cfg
+file, in tools/configs by default. Loading fills the editor; "Gravar" writes it to the firmware.
 
 Map units in the editor: accelerator and current in %, speed in km/h.
 Map units in the file: per mille (0..1000 / -1000..1000), km/h.
@@ -33,6 +36,7 @@ Current > 0 = drive (SetRelCurrent), < 0 = regen (SetRelBrakeCurrent), 0 = coast
 """
 
 import contextlib
+import json
 import re
 import sys
 import time
@@ -46,6 +50,7 @@ if TYPE_CHECKING:
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA_FILE = ROOT / "Core" / "Inc" / "throttle_map_data.h"
+CONFIG_DIR = Path(__file__).resolve().parent / "configs"  # saved setups (.cfg, JSON)
 
 TEMPLATE = """\
 /*
@@ -129,6 +134,26 @@ def write_data(apps, speed, table, path=DATA_FILE):
             na=len(apps), ns=len(speed), apps=join(apps), speed=join(speed), rows=rows
         )
     )
+
+
+def write_config(path, apps, speed, table, settings):
+    """Whole setup -> JSON .cfg. Map in file units (per mille, km/h), settings {name: value}."""
+    cfg = {"map": {"apps": apps, "speed": speed, "table": table}, "settings": settings}
+    text = json.dumps(cfg, indent=1)
+    text = re.sub(r"\[\s+([-\d.,\s]+?)\s+\]", lambda m: "[" + " ".join(m.group(1).split()) + "]", text)
+    Path(path).write_text(text, encoding="utf-8")  # one line per list of numbers (map row)
+
+
+def read_config(path):
+    """JSON .cfg -> ((apps, speed, table), {setting: value}). Settings this editor does not know,
+    or that are not numbers, are left out. Raises ValueError/KeyError/TypeError if it is no config."""
+    cfg = json.loads(Path(path).read_text(encoding="utf-8"))
+    apps, speed, table = cfg["map"]["apps"], cfg["map"]["speed"], cfg["map"]["table"]
+    if len(table) != len(speed) or any(len(row) != len(apps) for row in table):
+        raise ValueError("mapa: o tamanho da tabela nao bate com os eixos")
+    settings = {name: value for name, value in cfg.get("settings", {}).items()
+                if name in BY_NAME and isinstance(value, (int, float))}
+    return (apps, speed, table), settings
 
 
 # =============================== SETTINGS ===============================
@@ -236,11 +261,9 @@ SETTINGS = [
         100,
         "PAU: tracao permitida na potencia maxima (%)",
     ),
-    Setting(SAFETY, APPS_H, "APPS_REST_DEADZONE_BITS", "int", 0, 100, "Calibracao flash: zona morta em repouso (bits)"),
-    Setting(SAFETY, APPS_H, "APPS_FULL_MARGIN_BITS", "int", 0, 100, "Calibracao flash: margem a fundo (bits)"),
-    Setting(SAFETY, APPS_H, "APPS_CAL_MIN_TRAVEL_BITS", "int", 1, 4095, "Calibracao flash: curso minimo aceite (bits)"),
-    Setting(SAFETY, APPS_H, "APPS_MIN_BITS", "int", 0, 4095, "Sem calibracao na flash: APPS1 a 0 % (bits)"),
-    Setting(SAFETY, APPS_H, "APPS_MAX_BITS", "int", 0, 4095, "Sem calibracao na flash: APPS1 a 100 % (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_SINGLE_SENSOR", "bool", 0, 1, "So APPS1, SEM verificacao APPS1/APPS2 (so bancada)"),
+    Setting(SAFETY, APPS_H, "APPS_MIN_BITS", "int", 0, 4095, "APPS1 a 0 % (bits)"),
+    Setting(SAFETY, APPS_H, "APPS_MAX_BITS", "int", 0, 4095, "APPS1 a 100 % (bits)"),
     Setting(
         SAFETY,
         APPS_H,
@@ -260,7 +283,7 @@ SETTINGS = [
         "Histerese do pedal (bits)",
     ),
     Setting(
-        SAFETY, APPS_H, "APPS2_OFFSET", "int", 0, 4095, "Sem calibracao na flash: APPS2 -> APPS1 offset (bits)"
+        SAFETY, APPS_H, "APPS2_OFFSET", "int", -10000, 4095, "APPS2 -> APPS1: offset (bits)"
     ),
     Setting(
         SAFETY,
@@ -269,7 +292,7 @@ SETTINGS = [
         "int",
         500,
         4000,
-        "APPS2 -> APPS1: ganho x1000 (calibracao flash aceite a +-25 %)",
+        "APPS2 -> APPS1: ganho x1000",
     ),
     Setting(
         SAFETY,
@@ -441,10 +464,9 @@ def check_settings(values):
                     f"APPS_TOLERANCE > 10 % do curso do pedal ({(hi - lo) / 10:.0f} bits) - regra",
                 )
             )
-    travel, dead, margin = get("APPS_CAL_MIN_TRAVEL_BITS"), get("APPS_REST_DEADZONE_BITS"), get("APPS_FULL_MARGIN_BITS")
-    if None not in (travel, dead, margin) and travel <= dead + margin:
+    if get("APPS_SINGLE_SENSOR") == 1:
         errors.append(
-            (APPS_H, "APPS_CAL_MIN_TRAVEL_BITS tem de ser maior que zona morta + margem (senao o firmware nao compila)")
+            (APPS_H, "APPS_SINGLE_SENSOR = 1: verificacao APPS1/APPS2 DESLIGADA - so bancada, nao e legal FS")
         )
     fade, cutoff = get("THROTTLE_REGEN_FADE_START_V"), get("THROTTLE_REGEN_CUTOFF_V")
     if None not in (fade, cutoff) and cutoff > 0 and fade >= cutoff:
@@ -462,26 +484,20 @@ def check_settings(values):
     return errors
 
 
-APPS_CAL_SETTINGS = ("APPS_REST_DEADZONE_BITS", "APPS_FULL_MARGIN_BITS", "APPS_CAL_MIN_TRAVEL_BITS",
-                     "APPS2_GAIN_X1000", "APPS_TOLERANCE")
+APPS_CAL_MARGIN_BITS = 5  # 0 % = rest average + this, 100 % = full pedal average - this
+APPS_CAL_SECONDS = 1.0  # each measurement (the pedal springs are too strong to hold it longer)
+APPS_CAL_MAX_SPREAD = 6  # APPS1 moving more than this (bits) during a measurement -> warning
 
 
-def apps_cal_result(cal, values):
-    """What APPS_Init() in APPS.c makes of a flash record {"rest"/"full": (apps1, apps2)}:
-    (0 % bits, 100 % bits, APPS2 gain x1000, [problems]). Same checks as the firmware - a
-    record it rejects is not used (the VCU falls back to the APPS.h values)."""
-    (a1r, a2r), (a1f, a2f) = cal["rest"], cal["full"]
-    dead, margin, travel, ref_gain, tol = (values[n] for n in APPS_CAL_SETTINGS)
-    problems = []
-    if a1f - a1r < travel or a2f - a2r < travel:
-        problems.append(f"Curso do pedal menor que {travel} bits (APPS_CAL_MIN_TRAVEL_BITS): a VCU rejeita")
-    gain = (a2f - a2r) * 1000 // (a1f - a1r) if a1f > a1r else 0
-    if not ref_gain * 3 // 4 <= gain <= ref_gain * 5 // 4:
-        problems.append(f"Ganho APPS2/APPS1 {gain / 1000:.3f} longe de {ref_gain / 1000:.3f} (+-25 %): a VCU rejeita")
-    lo, hi = a1r + dead, a1f - margin
-    if hi > lo and tol > (hi - lo) / 10:
-        problems.append(f"APPS_TOLERANCE > 10 % do curso do pedal ({(hi - lo) / 10:.0f} bits) - regra")
-    return lo, hi, gain, problems
+def apps_cal_defines(full, rest):
+    """APPS1 readings with the pedal fully pressed / released -> (APPS_MIN_BITS, APPS_MAX_BITS,
+    [warnings]). The margin keeps a released pedal at 0 % and a full pedal at 100 % even if
+    the sensor drifts a few bits."""
+    lo = round(sum(rest) / len(rest)) + APPS_CAL_MARGIN_BITS
+    hi = round(sum(full) / len(full)) - APPS_CAL_MARGIN_BITS
+    warnings = [f"{name}: APPS1 variou {min(v)}..{max(v)} bits - pedal a mexer ou sensor instavel"
+                for name, v in (("A fundo", full), ("Repouso", rest)) if max(v) - min(v) > APPS_CAL_MAX_SPREAD]
+    return lo, hi, warnings
 
 
 def format_value(setting, value):
@@ -532,6 +548,12 @@ def selftest():
         tmp.unlink(missing_ok=True)
 
     values = read_settings()
+    tmp = CONFIG_DIR.parent / "selftest.cfg"
+    try:
+        write_config(tmp, *data, values)
+        assert read_config(tmp) == (data, values), "config does not read back the same"
+    finally:
+        tmp.unlink(missing_ok=True)
     locked = [n for n, v in values.items() if v is None]
     assert not locked, f"locked (define line not found): {locked}"
     # Writing the same values must not touch any file
@@ -552,16 +574,14 @@ def selftest():
     assert axis_bracket([0, 10, 20], 25) == (1, 2, 1.0)
     assert axis_bracket([0, 10, 20], 15) == (1, 2, 0.5)
     assert axis_bracket([0, 10, 20], 10) == (0, 1, 1.0)
-    from vcu_live import pack_apps_cal, parse_apps_cal
-
-    cal = {"rest": (1113, 2200), "full": (1375, 2705)}
-    raw = pack_apps_cal(cal)
-    assert parse_apps_cal(raw) == cal and parse_apps_cal(b"\xff" * len(raw)) is None
-    assert parse_apps_cal(raw[:5] + bytes([raw[5] ^ 1]) + raw[6:]) is None, "CRC must catch a flipped bit"
-    known = dict(values, APPS_REST_DEADZONE_BITS=9, APPS_FULL_MARGIN_BITS=8, APPS_CAL_MIN_TRAVEL_BITS=100,
-                 APPS2_GAIN_X1000=1928, APPS_TOLERANCE=20)
-    assert apps_cal_result(cal, known) == (1122, 1367, 1927, [])
-    assert len(apps_cal_result({"rest": (1113, 2200), "full": (1150, 2270)}, known)[3]) == 2  # short travel
+    assert cell_color(50) == "#ffacac" and cell_color(-50) == "#acacff" and cell_color(0) == "#ffffff"
+    flat = {(r, c): 5.0 for r in range(1, 4) for c in range(1, 4)}
+    assert smooth_cells(flat, flat) == flat, "smoothing a flat area must not change it"
+    spike = {**dict.fromkeys(flat, 0.0), (2, 2): 16.0}
+    assert smooth_cells(spike, {(2, 2)}) == {(2, 2): 4.0}  # centre weight 4 of 16
+    assert smooth_cells(spike, {(1, 1)}) == {(1, 1): 16.0 / 9}  # corner: only 4 neighbours, weights 4+2+2+1
+    assert apps_cal_defines([1485, 1486, 1487], [1330, 1331, 1332]) == (1331 + 5, 1486 - 5, [])
+    assert len(apps_cal_defines([1400, 1486], [1330, 1331])[2]) == 1  # pedal not held at full
     problems = check_settings(values)
     print(
         f"OK - map {len(data[1])}x{len(data[0])}, {len(values)} settings found, none locked"
@@ -577,12 +597,9 @@ DEFAULT_VIEW = (
     -145,
 )  # 3D view (elevation, azimuth): speed along the front, accelerator to the side
 LIVE_TRAIL_POINTS = 8  # live trail length in the 3D view (1.6 s at the 200 ms poll), fades out
-LIVE_LOST_TIMEOUT_S = 3  # reads failing this long (SWD noise) -> reopen the ST-LINK; gives up only if that fails
+UNDO_STEPS = 100  # Ctrl+Z steps kept for the map
+LIVE_LOST_TIMEOUT_S = 3  # reads failing this long (SWD noise) -> reopen the ST-LINK every 1 s until it works
 LIVE_STRONG, LIVE_WEAK, LIVE_AXIS_BG = "#007a00", "#6fd66f", "#9be89b"  # live cursor colours in the table
-APPS_CAL_NAMES = {"rest": "repouso", "full": "a fundo"}
-APPS_CAL_SAFE_STATES = ("STATE_INIT", "STATE_SHUTDOWN", "STATE_STANDBY")  # TS off: the VCU may be reset
-APPS_CAL_SAMPLES = 10  # readings over ~1 s, averaged
-APPS_CAL_MAX_SPREAD = 4  # APPS1 bits the pedal may move while measuring (APPS2: 2x, it has ~2x the scale)
 
 
 def axis_bracket(axis, x):
@@ -598,19 +615,30 @@ def axis_bracket(axis, x):
     return i, i + 1, ((x - axis[i]) / span if span else 0.0)
 
 
-def cell_color(percent):
-    """White at 0, red for drive, blue for regen, stronger with the value."""
+def cell_color(percent, selected=False):
+    """White at 0, red for drive, blue for regen, stronger with the value. Selected: darker."""
     shade = int(255 * (1 - 0.65 * min(abs(percent) / 100, 1)))
-    if percent > 0:
-        return f"#ff{shade:02x}{shade:02x}"
-    if percent < 0:
-        return f"#{shade:02x}{shade:02x}ff"
-    return "#ffffff"
+    rgb = (255, shade, shade) if percent > 0 else (shade, shade, 255) if percent < 0 else (255, 255, 255)
+    if selected:
+        rgb = tuple(v * 3 // 4 for v in rgb)
+    return "#%02x%02x%02x" % rgb
+
+
+def smooth_cells(values, cells):
+    """{(row, col): value} -> new values for `cells`: weighted average with the 3x3 neighbours
+    (1-2-1 kernel, centre x4), like TunerStudio "Smooth Cells". Neighbours outside the table
+    are left out; cells not in `cells` are read but never changed."""
+    kernel = {(dr, dc): (2 - abs(dr)) * (2 - abs(dc)) for dr in (-1, 0, 1) for dc in (-1, 0, 1)}
+    new = {}
+    for r, c in cells:
+        near = [(w, values[r + dr, c + dc]) for (dr, dc), w in kernel.items() if (r + dr, c + dc) in values]
+        new[r, c] = sum(w * v for w, v in near) / sum(w for w, _ in near)
+    return new
 
 
 def run_gui():
     import tkinter as tk
-    from tkinter import messagebox, ttk
+    from tkinter import filedialog, messagebox, ttk
     from typing import cast
 
     import numpy as np
@@ -637,6 +665,8 @@ def run_gui():
         tabs.add(frame, text=name)
 
     # ------------------------------- Map tab -------------------------------
+    map_tools = tk.Frame(map_tab)
+    map_tools.pack(fill="x", padx=4, pady=(4, 0))
     table_frame = tk.Frame(map_tab)
     table_frame.pack(padx=4, pady=4)
 
@@ -652,9 +682,12 @@ def run_gui():
     canvas.get_tk_widget().pack(side="left", fill="both", expand=True)
 
     entries = {}  # (row, col) -> Entry; row 0 = accelerator axis, col 0 = speed axis
+    cell_of = {}  # Entry -> (row, col), for the cell under the mouse while dragging
     grid_size = {"rows": range(0), "cols": range(0)}
-    # Table cell shown as a yellow dot in the 3D view, and where a mouse click started
-    selected_cell: tuple[int, int] | None = None
+    # Selected map cells (darker in the table, yellow dots in the 3D view); anchor = where the
+    # click / drag / Shift+click selection starts
+    selection: set[tuple[int, int]] = set()
+    anchor: tuple[int, int] | None = None
     marker: Artist | None = None
     press_start: tuple[float, float] | None = None
     # Live link to the VCU (tools/vcu_live.py): green dot + highlighted cell = operating point
@@ -666,6 +699,10 @@ def run_gui():
     live_poll_job: str | None = None  # pending poll, cancelled on disconnect so two loops never run
     live_failing_since: float | None = None  # time.monotonic() of the first failed read in a row
     live_labels: dict[str, tk.Label] = {}
+    # Undo (Ctrl+Z): the map texts as last committed (Enter, leaving a cell, the buttons) and
+    # the committed maps before it
+    committed: dict[tuple[int, int], str] = {}
+    undo_stack: deque[dict[tuple[int, int], str]] = deque(maxlen=UNDO_STEPS)
 
     def collect_map():
         """Read the grid back into file units. Raises ValueError on a bad number."""
@@ -676,15 +713,17 @@ def run_gui():
         return apps, speed, table
 
     def refresh_map(_event=None):
-        nonlocal marker, live_marker, live_trail_line
+        nonlocal marker, live_marker, live_trail_line, committed
         try:
             apps, speed, table = collect_map()
         except ValueError:
             status.config(text="Valor invalido numa celula do mapa", fg="red")
             return
-        for r in grid_size["rows"]:
-            for c in grid_size["cols"]:
-                entries[r, c].config(bg=cell_color(table[r - 1][c - 1] / 10))
+        texts = {cell: e.get() for cell, e in entries.items()}
+        if committed and texts != committed:
+            undo_stack.append(committed)
+        committed = texts
+        paint_cells(table)
         elev, azim = ax3d.elev, ax3d.azim
         ax3d.clear()
         ax3d.computed_zorder = (
@@ -712,43 +751,153 @@ def run_gui():
         fig.tight_layout()
         canvas.draw_idle()
 
+    def paint_cells(table):
+        for r in grid_size["rows"]:
+            for c in grid_size["cols"]:
+                entries[r, c].config(bg=cell_color(table[r - 1][c - 1] / 10, (r, c) in selection))
+
     # --- Link between the 3D view and the table ---
     def draw_marker(apps, speed, table):
         nonlocal marker
         if marker is not None:
             marker.remove()
             marker = None
-        cell = selected_cell
-        if cell is None:
+        cells = sorted(selection)
+        if not cells:
             return
-        r, c = cell
-        value = table[r - 1][c - 1] / 10
         (marker,) = ax3d.plot(
-            [apps[c - 1] / 10],
-            [speed[r - 1]],
-            [value],
+            [apps[c - 1] / 10 for _, c in cells],
+            [speed[r - 1] for r, _ in cells],
+            [table[r - 1][c - 1] / 10 for r, c in cells],
             linestyle="none",
             marker="o",
-            markersize=10,
+            markersize=10 if len(cells) == 1 else 6,
             markerfacecolor="yellow",
             markeredgecolor="black",
             markeredgewidth=1.5,
             zorder=10,
         )
-        status.config(
-            text=f"Celula: {speed[r - 1]} km/h, acelerador {apps[c - 1] / 10:g} % -> {value:g} %",
-            fg="black",
-        )
+        if len(cells) == 1:
+            r, c = cells[0]
+            text = f"Celula: {speed[r - 1]} km/h, acelerador {apps[c - 1] / 10:g} % -> {table[r - 1][c - 1] / 10:g} %"
+        else:
+            text = f"{len(cells)} celulas selecionadas"
+        status.config(text=text, fg="black")
 
-    def show_selection(row, col):
-        """A table cell got the focus: mark it in the 3D view."""
-        nonlocal selected_cell
-        selected_cell = (row, col)
+    def set_selection(cells):
+        if cells == selection:
+            return
+        selection.clear()
+        selection.update(cells)
         try:
-            draw_marker(*collect_map())
+            data = collect_map()
         except ValueError:
             return
+        paint_cells(data[2])
+        draw_marker(*data)
         canvas.draw_idle()
+
+    def select_rect(corner):
+        """Select the rectangle from the anchor to `corner` (both included)."""
+        (r0, c0), (r1, c1) = anchor, corner
+        set_selection({(r, c) for r in range(min(r0, r1), max(r0, r1) + 1)
+                       for c in range(min(c0, c1), max(c0, c1) + 1)})
+
+    def on_cell_click(event, row, col):
+        nonlocal anchor
+        if event.state & 0x0001 and anchor is not None:  # Shift: extend from the anchor
+            select_rect((row, col))
+        else:
+            anchor = (row, col)
+            set_selection({(row, col)})
+        if root.focus_get() is not entries[row, col]:  # not a 2nd click to place the cursor
+            root.after_idle(select_focused_text)
+
+    def select_focused_text():
+        """Typing replaces the value of the focused cell (Shift+click keeps the focus where it was)."""
+        focused = root.focus_get()
+        if focused in cell_of:
+            focused.select_range(0, "end")
+
+    def on_cell_drag(event):
+        cell = cell_of.get(root.winfo_containing(event.x_root, event.y_root))
+        if anchor is not None and cell is not None:
+            select_rect(cell)
+            root.after_idle(select_focused_text)
+
+    def on_cell_enter(row, col):
+        """Enter: with several cells selected, all of them get the value typed in this one."""
+        if len(selection) < 2 or (row, col) not in selection:
+            refresh_map()
+            return
+        try:
+            value = float(entries[row, col].get())
+        except ValueError:
+            status.config(text="Valor invalido", fg="red")
+            return
+        change_selected(lambda _values: dict.fromkeys(selection, value))
+
+    def undo(_event=None):
+        """Ctrl+Z on the map tab: first drops a value being typed, then steps back one change."""
+        nonlocal committed
+        if tabs.select() != str(map_tab):
+            return None
+        if {cell: e.get() for cell, e in entries.items()} != committed:
+            target = committed
+        elif undo_stack:
+            target = undo_stack.pop()
+        else:
+            status.config(text="Nada para desfazer", fg="black")
+            return "break"
+        for cell, text in target.items():
+            entries[cell].delete(0, "end")
+            entries[cell].insert(0, text)
+        committed = target
+        refresh_map()
+        status.config(text=f"Desfeito (Ctrl+Z) - mais {len(undo_stack)} para tras", fg="black")
+        return "break"
+
+    root.bind_all("<Control-z>", undo)
+    root.bind_all("<Control-Z>", undo)
+
+    def show_selection(row, col):
+        """A cell got the focus (keyboard or click): select it, unless it is already selected."""
+        nonlocal anchor
+        if (row, col) not in selection:
+            anchor = (row, col)
+            set_selection({(row, col)})
+
+    def change_selected(new_values):
+        """new_values({cell: %}) -> {cell: new %} for the selected cells; written and redrawn."""
+        if not selection:
+            status.config(text="Seleciona celulas do mapa primeiro (arrastar ou Shift+clique)", fg="red")
+            return
+        try:
+            values = {(r, c): float(entries[r, c].get()) for r in grid_size["rows"] for c in grid_size["cols"]}
+            new = new_values(values)
+        except ValueError:
+            status.config(text="Valor invalido numa celula do mapa ou no passo", fg="red")
+            return
+        for cell, value in new.items():
+            entries[cell].delete(0, "end")
+            entries[cell].insert(0, f"{min(max(round(value, 1), -100.0), 100.0):g}")
+        refresh_map()
+
+    step = tk.StringVar(value="1")
+
+    def nudge(sign):
+        change_selected(lambda values: {cell: values[cell] + sign * float(step.get()) for cell in selection})
+
+    tk.Button(map_tools, text="-", width=3, command=lambda: nudge(-1)).pack(side="left")
+    tk.Button(map_tools, text="+", width=3, command=lambda: nudge(+1)).pack(side="left", padx=(2, 4))
+    tk.Label(map_tools, text="passo").pack(side="left")
+    tk.Entry(map_tools, textvariable=step, width=5, justify="right").pack(side="left")
+    tk.Label(map_tools, text="%").pack(side="left", padx=(0, 12))
+    tk.Button(map_tools, text="Suavizar", command=lambda: change_selected(
+        lambda values: smooth_cells(values, selection))).pack(side="left")
+    tk.Label(map_tools, text="Selecionar: arrastar ou Shift+clique.  Escrever + Enter: todas as selecionadas.  "
+                             "Ctrl+Z: desfazer", fg="gray").pack(
+        side="left", padx=12)
 
     def on_press(event):
         nonlocal press_start
@@ -807,19 +956,29 @@ def run_gui():
         )
         e.insert(0, value)
         e.grid(row=row + 1, column=col + 1)
-        e.bind("<Return>", refresh_map)
+        e.bind("<Return>", refresh_map if axis else lambda _e: on_cell_enter(row, col))
         e.bind("<FocusOut>", refresh_map)
         e.bind("<Up>", lambda _e: move(row - 1, col))
         e.bind("<Down>", lambda _e: move(row + 1, col))
         if not axis:
             e.bind("<FocusIn>", lambda _e: show_selection(row, col))
+            e.bind("<Button-1>", lambda ev: on_cell_click(ev, row, col), add="+")
+            e.bind("<B1-Motion>", on_cell_drag, add="+")
+            cell_of[e] = (row, col)
         entries[row, col] = e
 
-    def load_map():
-        apps, speed, table = read_data()
+    def load_map(data=None):
+        """Build the table from `data` (apps, speed, table), or from the map file."""
+        nonlocal anchor, committed
+        apps, speed, table = data or read_data()
         for widget in table_frame.winfo_children():
             widget.destroy()
         entries.clear()
+        cell_of.clear()
+        selection.clear()
+        anchor = None
+        committed = {}
+        undo_stack.clear()
         grid_size["rows"] = range(1, len(speed) + 1)
         grid_size["cols"] = range(1, len(apps) + 1)
         title = ("Arial", 10, "bold")
@@ -989,6 +1148,43 @@ def run_gui():
         side="left", padx=4
     )
 
+    cfg_types = [("Config", "*.cfg")]
+
+    def save_config():
+        try:
+            data = collect_map()
+            settings = {name: field_value(name) for name in fields if loaded.get(name) is not None}
+        except ValueError:
+            messagebox.showerror("Config nao guardada", "Ha um valor que nao e numero (mapa ou definicoes)")
+            return
+        CONFIG_DIR.mkdir(exist_ok=True)
+        path = filedialog.asksaveasfilename(parent=root, initialdir=CONFIG_DIR, defaultextension=".cfg",
+                                            filetypes=cfg_types)
+        if path:
+            write_config(path, *data, settings)
+            status.config(text=f"Config guardada: {Path(path).name}", fg="green")
+
+    def load_config():
+        CONFIG_DIR.mkdir(exist_ok=True)
+        path = filedialog.askopenfilename(parent=root, initialdir=CONFIG_DIR, filetypes=cfg_types)
+        if not path:
+            return
+        try:
+            data, settings = read_config(path)
+        except (OSError, ValueError, KeyError, TypeError) as err:
+            messagebox.showerror("Config nao carregada", f"{Path(path).name}: {err}")
+            return
+        load_map(data)
+        for name, value in settings.items():
+            if loaded.get(name) is not None:  # locked settings (#define not found) stay as they are
+                fields[name][0].set(int(value) if BY_NAME[name].kind == "bool" else f"{value:g}")
+        mark_settings()
+        status.config(text=f"Carregada {Path(path).name} - 'Gravar' escreve no firmware "
+                           "(Calibracao/Seguranca: desbloquear primeiro)", fg="green")
+
+    tk.Button(bar, text="Guardar config", command=save_config).pack(side="left")
+    tk.Button(bar, text="Carregar config", command=load_config).pack(side="left", padx=4)
+
     def reset_view():
         ax3d.view_init(*DEFAULT_VIEW)
         canvas.draw_idle()
@@ -1070,14 +1266,17 @@ def run_gui():
             now = time.monotonic()
             live_failing_since = live_failing_since or now
             if now - live_failing_since >= LIVE_LOST_TIMEOUT_S:
-                # Still failing: reopen the ST-LINK. Only if that fails (VCU off, cable out) give up.
+                # Still failing: reopen the ST-LINK. With the inverters on it can drop off USB and
+                # come back seconds later, so keep trying every second until "Desligar VCU".
                 try:
                     link.close()
                     link.connect()
+                    live_failing_since = None
                 except Exception as err:  # noqa: BLE001 - any connect problem becomes a message
-                    disconnect_live(f"Ligacao a VCU perdida: {err}")
+                    status.config(text=f"Sem ligacao a VCU ha {now - live_failing_since:.0f} s - a tentar de novo "
+                                       f"('Desligar VCU' para parar): {str(err).splitlines()[0]}", fg="#c06000")
+                    live_poll_job = root.after(1000, poll_live)
                     return
-                live_failing_since = None
             status.config(text=f"Sem leitura da VCU ha {now - (live_failing_since or now):.1f} s "
                                "(ruido no SWD?) - a tentar...", fg="#c06000")
             live_poll_job = root.after(200, poll_live)
@@ -1137,84 +1336,65 @@ def run_gui():
             tk.Label(live_frame, text=f"{expr}: nao existe no ELF", fg="gray").grid(
                 row=len(link.variables) + j, column=0, columnspan=2, sticky="w")
         live_button.config(text="Desligar VCU")
-        status.config(text="Ligado a VCU (ST-LINK) - so leitura, exceto calibracao APPS", fg="green")
+        status.config(text="Ligado a VCU (ST-LINK) - so leitura", fg="green")
         poll_live()
 
     live_button = tk.Button(bar, text="Ligar VCU", width=12, command=toggle_live)
     live_button.pack(side="left", padx=4)
 
-    apps_measured: dict[str, tuple[int, int]] = {}  # "rest"/"full" -> (APPS1, APPS2) measured this session
-
-    def calibrate_apps(point):
-        """Measure one APPS point (pedal released / fully pressed) and save it to the VCU flash."""
-        title, name = "Calibracao APPS", APPS_CAL_NAMES[point]
+    def calibrate_apps():
+        """Pedal fully pressed, then released -> APPS_MIN_BITS / APPS_MAX_BITS written in APPS.h."""
+        title = "Calibrar APPS"
         link = live
         if link is None:
             messagebox.showinfo(title, "Liga primeiro a VCU ('Ligar VCU').")
             return
-        settings = read_settings()
-        if any(settings[n] is None for n in APPS_CAL_SETTINGS):
-            messagebox.showerror(title, "APPS.h bloqueado (ver separador Calibracao) - nao da para verificar a calibracao.")
+        if loaded.get("APPS_MIN_BITS") is None or loaded.get("APPS_MAX_BITS") is None:
+            messagebox.showerror(title, "APPS.h bloqueado (#define nao encontrado) - nada a gravar.")
             return
+        steps = (("full", "1/2  Carrega o pedal A FUNDO, mantem, e carrega OK.\n\nMede durante 1 s."),
+                 ("rest", "2/2  Larga o pedal (repouso) e carrega OK.\n\nMede durante 1 s."))
+        samples = {}
         try:
-            state_var = next((v for v in link.variables if v.expr == "current_state"), None)
-            state = state_var.text(link.read()[state_var.expr]) if state_var else "desconhecido"
-            if state not in APPS_CAL_SAFE_STATES:
-                messagebox.showerror(title, f"A VCU esta em {state}. Gravar a calibracao faz reset a VCU: so com o TS "
-                                            f"desligado ({', '.join(APPS_CAL_SAFE_STATES)}).")
-                return
-            status.config(text=f"A medir APPS {name} - nao mexas no pedal...", fg="black")
-            root.update_idletasks()
-            samples = []
-            for _ in range(APPS_CAL_SAMPLES):
-                values = link.read()
-                samples.append((values["apps_data.state.apps1_raw"], values["apps_data.state.apps2_raw"]))
-                time.sleep(0.1)
-            stored = link.read_apps_cal()
+            for step, text in steps:
+                if not messagebox.askokcancel(title, text) or live is not link:
+                    status.config(text="Calibracao APPS cancelada", fg="black")
+                    return
+                status.config(text="A medir o APPS1...", fg="black")
+                root.update_idletasks()
+                end = time.monotonic() + APPS_CAL_SECONDS
+                samples[step] = [link.read()["apps_data.state.apps1_raw"]]
+                while time.monotonic() < end:
+                    samples[step].append(link.read()["apps_data.state.apps1_raw"])
         except Exception as err:  # noqa: BLE001 - probe unplugged, USB/pyocd error: message, not a crash
             disconnect_live(f"Ligacao a VCU perdida: {err}")
             return
-        apps1, apps2 = zip(*samples)
-        if max(apps1) - min(apps1) > APPS_CAL_MAX_SPREAD or max(apps2) - min(apps2) > 2 * APPS_CAL_MAX_SPREAD:
-            status.config(text=f"APPS {name}: pedal a mexer (APPS1 {min(apps1)}..{max(apps1)}) - repete", fg="red")
+        lo, hi, warnings = apps_cal_defines(samples["full"], samples["rest"])
+        new_values = {"APPS_MIN_BITS": lo, "APPS_MAX_BITS": hi}
+        warnings += [m for f, m in check_settings({**loaded, **new_values}) if f == APPS_H]
+        full, rest = samples["full"], samples["rest"]
+        text = (f"A fundo:  APPS1 {min(full)}..{max(full)}, media {round(sum(full) / len(full))}\n"
+                f"Repouso:  APPS1 {min(rest)}..{max(rest)}, media {round(sum(rest) / len(rest))}\n\n"
+                f"APPS_MIN_BITS  {loaded['APPS_MIN_BITS']:g} -> {lo}   (media repouso + {APPS_CAL_MARGIN_BITS})\n"
+                f"APPS_MAX_BITS  {loaded['APPS_MAX_BITS']:g} -> {hi}   (media a fundo - {APPS_CAL_MARGIN_BITS})\n\n")
+        if warnings:
+            text += "ATENCAO:\n" + "\n".join(f"- {w}" for w in warnings) + "\n\n"
+        text += "Gravar no APPS.h?"
+        if not messagebox.askyesno(title, text, icon="warning" if warnings else "question"):
+            status.config(text="Calibracao APPS nao gravada", fg="black")
             return
-        apps_measured[point] = (round(sum(apps1) / len(apps1)), round(sum(apps2) / len(apps2)))
-        # The other point: the record already in flash, else one measured earlier in this session
-        cal = {**apps_measured, **(stored or {}), point: apps_measured[point]}
-        other = "full" if point == "rest" else "rest"
-        if other not in cal:
-            status.config(text=f"APPS {name} medido (APPS1 {cal[point][0]}, APPS2 {cal[point][1]}). Sem calibracao "
-                               f"na flash: mede agora 'APPS {APPS_CAL_NAMES[other]}'", fg="black")
-            return
-        lo, hi, gain, problems = apps_cal_result(cal, settings)
-        text = (f"Gravar a calibracao do APPS na flash da VCU?\n\n"
-                f"Repouso:  APPS1 {cal['rest'][0]}, APPS2 {cal['rest'][1]}\n"
-                f"A fundo:  APPS1 {cal['full'][0]}, APPS2 {cal['full'][1]}\n"
-                f"-> 0 % = {lo} bits, 100 % = {hi} bits, ganho APPS2 {gain / 1000:.3f}\n\n")
+        _, problems = write_settings(new_values)
         if problems:
-            text += "ATENCAO:\n" + "\n".join(f"- {p}" for p in problems) + "\n\n"
-        text += "A VCU vai reiniciar (openocd, alguns segundos)."
-        if not messagebox.askyesno(title, text, icon="warning" if problems else "question") or live is not link:
-            return  # declined, or the link dropped while the dialog was open
-        status.config(text="A gravar a calibracao APPS (openocd)...", fg="black")
-        root.update_idletasks()
-        try:
-            link.write_apps_cal(cal)
-            values = link.read()
-        except Exception as err:  # noqa: BLE001 - openocd/pyocd problem: message, not a crash
-            disconnect_live("Calibracao APPS: erro (ver janela)")
-            messagebox.showerror(title, str(err))
+            messagebox.showerror(title, "\n".join(problems))
             return
-        active = (values["apps_data.config.min_value"], values["apps_data.config.max_value"])
-        if values["apps_data.config.from_flash"] and active == (lo, hi):
-            status.config(text=f"Calibracao APPS gravada e ativa: 0 % = {lo}, 100 % = {hi} bits", fg="green")
-        else:
-            status.config(text="Calibracao APPS gravada mas REJEITADA pela VCU - esta a usar os valores do APPS.h",
-                          fg="red")
+        for name, value in new_values.items():  # only these two fields: other unsaved edits stay
+            loaded[name] = value
+            fields[name][0].set(str(value))
+        mark_settings()
+        status.config(text=f"APPS.h gravado: 0 % = {lo}, 100 % = {hi} bits - compila e grava o firmware no CubeIDE",
+                      fg="green")
 
-    for point in APPS_CAL_NAMES:
-        tk.Button(bar, text=f"APPS {APPS_CAL_NAMES[point]}", command=lambda p=point: calibrate_apps(p)).pack(
-            side="left", padx=2)
+    tk.Button(bar, text="Calibrar APPS", command=calibrate_apps).pack(side="left", padx=2)
 
     def on_close():
         disconnect_live("")

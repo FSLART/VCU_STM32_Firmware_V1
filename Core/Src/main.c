@@ -1326,7 +1326,7 @@ int main(void) {
 	MX_USART3_UART_Init();
 	MX_TIM2_Init();
 	/* USER CODE BEGIN 2 */
-	APPS_Init();  // APPS calibration: flash record (tools/throttle_map_editor.py) or APPS.h
+	APPS_Init();  // APPS calibration in APPS.h
 	HAL_TIM_Base_Start_IT(&htim2);
 
 	can_driver_init();

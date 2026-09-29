@@ -14,7 +14,6 @@
 #include "APPS.h"
 
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,11 +27,11 @@
 #if APPS2_GAIN_X1000 == 0
 #error "APPS.h: APPS2_GAIN_X1000 must not be 0 (divides by it)"
 #endif
+#if APPS_SINGLE_SENSOR
+#warning "APPS.h: APPS_SINGLE_SENSOR = 1 - throttle from APPS1 only, APPS1/APPS2 plausibility check OFF (not for competition)"
+#endif
 #if APPS_MA_WINDOW_SIZE < 1
 #error "APPS.h: APPS_MA_WINDOW_SIZE must be at least 1"
-#endif
-#if APPS_CAL_MIN_TRAVEL_BITS <= APPS_REST_DEADZONE_BITS + APPS_FULL_MARGIN_BITS
-#error "APPS.h: APPS_CAL_MIN_TRAVEL_BITS must be greater than APPS_REST_DEADZONE_BITS + APPS_FULL_MARGIN_BITS"
 #endif
 
 /* ---------------------- Constants ---------------------- */
@@ -47,7 +46,6 @@
 #define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
 #define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
-#define APPS_SINGLE_SENSOR_TEST 0     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
 
 // Pedal calibration (0%/100% points, tolerance, hysteresis, APPS2 scale) is in APPS.h
 
@@ -82,60 +80,12 @@ static inline void calculate_functional_range(void) {
 }
 
 /**
- * @brief CRC32, same result as Python zlib.crc32 (tools/vcu_live.py writes the record with it)
- */
-static uint32_t crc32(const uint8_t* data, size_t len) {
-    uint32_t crc = 0xFFFFFFFFu;
-    while (len--) {
-        crc ^= *data++;
-        for (int bit = 0; bit < 8; bit++) {
-            crc = (crc >> 1) ^ (0xEDB88320u & (0u - (crc & 1u)));
-        }
-    }
-    return ~crc;  // crc32("123456789") = 0xCBF43926
-}
-
-/**
- * @brief Applies the flash calibration record (APPS_FlashCal_t) if it is valid
- *
- * Rejected (returns false, config untouched) when the block is erased or corrupted
- * (magic/CRC), a reading is outside the valid ADC range, the pedal travel is shorter than
- * APPS_CAL_MIN_TRAVEL_BITS on either sensor, or the APPS2/APPS1 slope is more than 25 %
- * away from APPS2_GAIN_X1000 (one sensor wrong while calibrating).
- */
-static bool load_flash_calibration(void) {
-    const APPS_FlashCal_t* cal = &apps_cal_flash;
-    if (cal->magic != APPS_CAL_MAGIC ||
-        cal->crc != crc32((const uint8_t*)cal, offsetof(APPS_FlashCal_t, crc))) {
-        return false;
-    }
-    if (cal->apps1_rest < APPS_MIN_VALID_VALUE || cal->apps2_rest < APPS_MIN_VALID_VALUE ||
-        cal->apps1_full > APPS_MAX_VALID_VALUE || cal->apps2_full > APPS_MAX_VALID_VALUE ||
-        cal->apps1_full < cal->apps1_rest + APPS_CAL_MIN_TRAVEL_BITS ||
-        cal->apps2_full < cal->apps2_rest + APPS_CAL_MIN_TRAVEL_BITS) {
-        return false;
-    }
-    uint32_t gain = (uint32_t)(cal->apps2_full - cal->apps2_rest) * 1000u / (cal->apps1_full - cal->apps1_rest);
-    if (gain < APPS2_GAIN_X1000 * 3u / 4u || gain > APPS2_GAIN_X1000 * 5u / 4u) {
-        return false;
-    }
-    apps_data.config.min_value = cal->apps1_rest + APPS_REST_DEADZONE_BITS;
-    apps_data.config.max_value = cal->apps1_full - APPS_FULL_MARGIN_BITS;
-    apps_data.config.apps2_gain_x1000 = (uint16_t)gain;
-    apps_data.config.apps2_offset = (int16_t)((int32_t)cal->apps2_rest - (int32_t)(cal->apps1_rest * gain / 1000u));
-    return true;
-}
-
-/**
- * @brief Initializes APPS module: calibration from the flash record if valid, else APPS.h
+ * @brief Initializes APPS module with the calibration in APPS.h
  */
 void APPS_Init(void) {
     apps_data.config.min_value = APPS_MIN_BITS;
     apps_data.config.max_value = APPS_MAX_BITS;
     apps_data.config.tolerance = APPS_TOLERANCE;
-    apps_data.config.apps2_offset = APPS2_OFFSET;
-    apps_data.config.apps2_gain_x1000 = APPS2_GAIN_X1000;
-    apps_data.config.from_flash = load_flash_calibration();
 
     // Calculate functional range based on configuration
     calculate_functional_range();
@@ -166,10 +116,9 @@ void APPS_Init(void) {
  * @return APPS_Result_t Structure with throttle position and error status
  */
 uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits) {
-    uint16_t min = apps_data.config.min_value, max = apps_data.config.max_value;
-    if (apps1_bits <= min) return 0;
-    if (apps1_bits >= max) return 100;
-    return (uint8_t)(((uint32_t)(apps1_bits - min) * 100u) / (max - min));
+    if (apps1_bits <= APPS_MIN_BITS) return 0;
+    if (apps1_bits >= APPS_MAX_BITS) return 100;
+    return (uint8_t)(((uint32_t)(apps1_bits - APPS_MIN_BITS) * 100u) / (APPS_MAX_BITS - APPS_MIN_BITS));
 }
 
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
@@ -179,10 +128,10 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     apps_data.state.apps1_raw = apps1;
     apps_data.state.apps2_raw = apps2;
 
-    // Convert APPS2 to APPS1 scale (config.apps2_offset / apps2_gain_x1000, see APPS_Init)
-    int32_t apps2_above_offset = (int32_t)apps2 - apps_data.config.apps2_offset;
+    // Convert APPS2 to APPS1 scale (see APPS2_OFFSET / APPS2_GAIN_X1000, offset may be negative)
+    int32_t apps2_above_offset = (int32_t)apps2 - (int32_t)APPS2_OFFSET;
     apps_data.state.apps2_adjusted = (apps2_above_offset > 0)
-        ? (uint16_t)((uint32_t)apps2_above_offset * 1000u / apps_data.config.apps2_gain_x1000) : 0u;
+        ? (uint16_t)((uint32_t)apps2_above_offset * 1000u / APPS2_GAIN_X1000) : 0u;
 
     // Disagreement tracking for calibration (Live Expressions)
     apps_data.state.disagreement = (uint16_t)abs((int)apps1 - (int)apps_data.state.apps2_adjusted);
@@ -192,21 +141,6 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         apps_data.state.disagreement_max_apps2_raw = apps2;
     }
 
-#if APPS_SINGLE_SENSOR_TEST
-    // TEST MODE: Ignore errors and APPS2, use APPS1 directly
-    apps_data.state.mean = apps2;
-    
-    // Safety check: STILL detect short to VCC or GND!
-    if (apps2 < APPS_MIN_VALID_VALUE || apps2 > APPS_MAX_VALID_VALUE) {
-        apps_data.state.percentage = 0;
-        apps_data.state.percentage_1000 = 0;
-        apps_data.state.mean = 0;
-        result.error = true;
-        result.error_type = APPS_ERROR_SHORT_CIRCUIT;
-    }
-    
-    if (!result.error) {
-#else
     	// Precalculate thresholds once - the real calibrated 0%/100% points.
     	// Tolerance is deliberately NOT applied here (see calculate_functional_range).
 		uint16_t min_threshold = apps_data.config.min_value;
@@ -226,9 +160,8 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
         result.error_type = apps_data.state.error_type;
     } else {
         // No error - throttle position comes from APPS1 only.
-        // APPS2 is still used above for the disagreement (plausibility) check.
+        // APPS2 is still used for the disagreement (plausibility) check, unless APPS_SINGLE_SENSOR.
         apps_data.state.mean = apps1;
-#endif
 
         // Hysteresis: hold the pedal value until it moves more than APPS_HYSTERESIS_BITS.
         // Near 0% force exactly 0; at 100% follow immediately so full pedal is always reached.
@@ -304,6 +237,12 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
  * @return APPS_ErrorType_t Error type detected, or APPS_ERROR_NONE
  */
 static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted) {
+#if APPS_SINGLE_SENSOR
+    // APPS2 ignored (APPS.h): only an open or shorted APPS1 is an error
+    (void)apps2_raw;
+    (void)apps2_adjusted;
+    return (apps1 < APPS_MIN_VALID_VALUE || apps1 > APPS_MAX_VALID_VALUE) ? APPS_ERROR_SHORT_CIRCUIT : APPS_ERROR_NONE;
+#endif
     // Check if values differ by more than 10%
 
     uint16_t max_difference = apps_data.config.tolerance;
