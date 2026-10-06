@@ -520,6 +520,16 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
 
             break;
         }
+
+        /* ---- AMS Master_MSC_ID_3 (0x704) -> repeated on the data bus as 0x750 ---- */
+        // ponytail: raw copy, relies on both DBCs having the same signal layout; decode with
+        // powertrain_t26_* and re-pack with data_t26_* if they ever differ
+        case POWERTRAIN_T26_MASTER_MSC_ID_3_FRAME_ID:
+            if (msg->dlc == DATA_T26_MASTER_MSC_ID_3_LENGTH) {
+                can_bus_send(&hcan1, DATA_T26_MASTER_MSC_ID_3_FRAME_ID, (uint8_t *)data, msg->dlc);
+            }
+            break;
+
         default:
             break;
     }
