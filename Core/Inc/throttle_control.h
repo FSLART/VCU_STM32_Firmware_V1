@@ -40,7 +40,7 @@
 
 /* ============================= SWITCHES ============================= */
 
-#define THROTTLE_REGEN_ENABLE        0  // 0 = regen off: negative map values give coast
+#define THROTTLE_REGEN_ENABLE        1  // 0 = regen off: negative map values give coast
 
 /* ========================= TORQUE RISE LIMIT ======================== */
 // Max drive torque rise rate, %/s (500 = 0 -> 100 % in 0.2 s). 0 = no limit.
