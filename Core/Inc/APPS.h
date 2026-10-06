@@ -11,6 +11,34 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* ========================= PEDAL CALIBRATION ======================== */
+// All values in APPS1 bits. The throttle is taken from APPS1 only; APPS2 is only used
+// for the disagreement (plausibility) check.
+
+#define APPS_MIN_BITS   1265U  // 0% throttle point  (rest measured 1113 + 9 bits dead zone)
+#define APPS_MAX_BITS   1394U  // 100% throttle point (full pedal measured 1375, -8 bits margin for drift)
+#define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (~8% of the 249-bit range)
+
+// Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.4% of pedal travel). The throttle output
+// only changes once APPS1 moves more than this many bits away from the last accepted
+// value. Within this many bits of the 0% point the output is forced to exactly 0, so a
+// released pedal always reads 0 (with the values above: 0 up to APPS1 1127).
+#define APPS_HYSTERESIS_BITS 5
+
+// APPS2 -> APPS1 scale. APPS2 is not exactly 2x APPS1: a straight-line fit of measured
+// points (APPS1 1185/1246/1260/1406 <-> APPS2 2343/2460/2476/2767) gives
+//   APPS2 = 1.928 * APPS1 + 55   ->   apps2_adjusted = (APPS2 - 55) / 1.928
+// so apps2_adjusted reads the same as APPS1 along the whole pedal travel.
+#define APPS2_OFFSET       55U  // APPS2 reading where APPS1 would be 0
+#define APPS2_GAIN_X1000 1928U  // APPS2 / APPS1 slope, x1000
+
+/* ====================== FILTERING AND SAFETY ======================== */
+// Used by main.c (moving average, CAN timeout check and calibration mode).
+
+#define APPS_MA_WINDOW_SIZE     5  // Moving average window, in samples of the ~100 Hz APPS timer
+#define MAX_APPS_TIMEOUT_MS   250  // No APPS CAN frame for this long -> throttle forced to 0
+#define CALIBRATE_APPS          0  // 1 = run APPS_Calibrate() and apply the measured min/max/tolerance
+
 // Error types
 typedef enum {
     APPS_ERROR_NONE = 0,
@@ -41,7 +69,12 @@ typedef struct {
     uint16_t apps1_raw;         // Raw APPS1 value from ADC
     uint16_t apps2_raw;         // Raw APPS2 value from ADC
     uint16_t apps2_adjusted;    // APPS2 proportionally adjusted
-    uint16_t mean;              // Mean used for throttle calculation
+    uint16_t mean;              // Pedal value used for throttle = APPS1 (before hysteresis)
+    uint16_t mean_held;         // Mean after hysteresis, used for the throttle percentage
+    uint16_t disagreement;      // |APPS1 - APPS2 adjusted| right now (error above tolerance)
+    uint16_t disagreement_max;  // Worst disagreement seen - set to 0 in Live Expressions to reset
+    uint16_t disagreement_max_apps1;      // APPS1 raw at the worst disagreement
+    uint16_t disagreement_max_apps2_raw;  // APPS2 raw at the worst disagreement
     uint16_t percentage;        // Throttle percentage (0-100)
     uint16_t percentage_1000;   // Higher resolution throttle percentage (0-999)
     uint16_t functional_range;  // Range between min and max thresholds
@@ -78,6 +111,14 @@ extern APPS_Instance_t apps_data;
 // Core functions
 void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance);
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2);
+
+/**
+ * @brief Convert an APPS1 reading to throttle percentage
+ * @param apps1_bits APPS1 value (same units as APPS_MIN_BITS / APPS_MAX_BITS)
+ * @return 0..100 %, straight line between APPS_MIN_BITS (0%) and APPS_MAX_BITS (100%),
+ *         clamped. No hysteresis and no error checks - it always converts.
+ */
+uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits);
 APPS_ErrorType_t APPS_GetErrorType(uint16_t apps1, uint16_t apps2);
 void APPS_PrintStatus(void);
 APPS_Config_t APPS_GetConfig(void);

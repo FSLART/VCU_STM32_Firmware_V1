@@ -23,7 +23,7 @@ extern APPS_Result_t result;
 /* BYPASS VARIABLES */
 #define Bypass_brake_pressure 0
 
-#define BRAKE_PRESSURE_THRESHOLD 20  // Minimum brake pressure (bar) required for R2D
+#define BRAKE_PRESSURE_THRESHOLD 6  // Minimum brake pressure (bar) required for R2D (rest reads ~3.1 bar, has drifted 1..3)
 
 typedef struct {
     uint32_t id;
@@ -169,9 +169,24 @@ typedef struct {
 
 // VCU signals structure
 typedef struct {
-    bool r2d_button_signal;  // R2D signal
-    bool r2d_toggle_signal;  // R2D toggle signal
-    bool r2d_button_prev;    // Previous state of button for edge detection
+    // ---- Dashboard buttons (from the CAN dashboard frame) ----
+    // Both are momentary buttons: each release toggles the request (50 ms debounce).
+    uint32_t dash_rx_count;            // Dashboard frames received
+    uint8_t ignition_button_raw;       // Ignition button bit in the last frame (1 = pressed)
+    uint8_t r2d_button_raw;            // R2D button bit in the last frame (1 = pressed)
+    bool ignition_button_prev;         // Debounced ignition button state, for edge detection
+    bool r2d_button_prev;              // Debounced R2D button state, for edge detection
+    uint32_t ignition_last_edge_time;  // Tick of the last ignition press/release (debounce)
+    uint32_t r2d_last_edge_time;       // Tick of the last R2D press/release (debounce)
+    bool ignition_toggle_signal;       // Ignition on/off, flips on each ignition button release
+    bool ignition_switch_signal;       // Ignition request used by the state machine (= toggle)
+    bool r2d_toggle_signal;            // R2D on/off, flips on each accepted R2D button release
+
+    // What the R2D check saw at the last R2D button release
+    uint8_t r2d_release_brake_bar;     // Brake pressure (needs >= BRAKE_PRESSURE_THRESHOLD)
+    uint8_t r2d_release_apps_pct;      // Accelerator % (needs 0)
+    uint8_t r2d_release_state;         // VCU state (needs 4 = waiting for R2D manual)
+    bool r2d_release_accepted;         // Whether that release toggled R2D
 
     bool r2d_autonomous_signal;  // R2D signal from autonomous system
 
@@ -179,18 +194,12 @@ typedef struct {
 
     uint8_t brake_pressure;  // Brake pressure signal
 
-    bool ignition_ad;                    // ignition coming from autonomous system
-    bool ignition_ad_prev;               // Previous state for edge detection
-    bool ignition_switch_signal;         // Ignition signal
-    bool ignition_toggle_signal;         // Toggled state for momentary ignition button
-    bool ignition_button_prev;           // Previous state of momentary ignition button
-    uint32_t ignition_last_toggle_time;  // Timestamp for debounce
+    bool ignition_ad;       // ignition coming from autonomous system
+    bool ignition_ad_prev;  // Previous state for edge detection
 
     bool precharge_signal;  // Precharge signal
     bool manual;            // Manual mode signal
     bool autonomous;        // Autonomous mode signal
-
-    uint32_t r2d_last_toggle_time;  // Timestamp for debounce
 
     bool AS_emergency;
 
@@ -205,6 +214,21 @@ typedef struct {
     uint32_t emergency_sound_start_time;   // Timestamp when emergency sound started
     uint32_t emergency_sound_last_toggle;  // Last toggle time for intermittent sound
     bool emergency_sound_state;            // Current state of the emergency sound (ON/OFF)
+
+    // APPS CAN frame period stats (ms, from ISR RX timestamp) - Live Expressions debug
+    uint32_t apps_dt_ms;                   // Delta between the last two APPS frames
+    uint32_t apps_dt_min_ms;               // Smallest delta seen since reset
+    uint32_t apps_dt_max_ms;               // Largest delta seen since reset
+    uint32_t apps_rx_count;                // APPS frames received since reset
+    uint32_t apps_prev_rx_timestamp;       // RX timestamp of the previous APPS frame
+    bool apps_dt_reset;                    // Set to 1 to clear min/max/count
+
+    // Brake pressure frame (0x710, CAN3) raw data - Live Expressions debug
+    uint16_t brake_raw;                    // (data[1] << 8) | data[0], before 0.1 scaling
+    uint8_t brake_raw_data[8];             // Full payload as received
+    uint8_t brake_dlc;                     // DLC of the last frame
+    uint32_t brake_rx_count;               // 0x710 frames received
+    uint32_t brake_last_rx_time;           // HAL tick of the last 0x710 frame
 } VCU_Signals_t;
 
 // VCU signals (defined in CAN_utils.c)
@@ -212,7 +236,7 @@ extern VCU_Signals_t vcu;
 
 // Variables
 // APPS Loss of comms tick
-extern volatile uint32_t last_apps_can_rx_time;  // keeps track of the last time a valid 0x710 message came through
+extern volatile uint32_t last_apps_can_rx_time;  // keeps track of the last time a valid 0x50 message came through
 extern volatile uint32_t last_acu_can_rx_time;
 extern __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 extern volatile uint8_t debug_res_signal;
@@ -352,6 +376,13 @@ void send_vcu_4(CAN_HandleTypeDef* hcan, const ACU_t* acu);
 void send_all_vcu_frames(CAN_HandleTypeDef* hcan, const FSIC_t* hv500, const BMSvars_t* bms, const ACU_t* acu);
 void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef* hcan, uint8_t apps1_raw, uint8_t apps2_raw, uint8_t apps_delta_raw, uint8_t cpu_temp, uint8_t flag_digital_bspd, uint8_t apps_error_type, int16_t apps_1000);
 void can_bus_send_vcu_state(void);
+
+/**
+ * @brief Send AQT1 (0x700, data bus) with the throttle percentage
+ * @param hcan CAN handle for the data bus
+ * @param throttle_percent Throttle 0..100 %
+ */
+void can_bus_send_aqt1_throttle(CAN_HandleTypeDef* hcan, uint8_t throttle_percent);
 
 /**
  * @brief CAN mailbox used for transmitting messages

@@ -20,6 +20,17 @@
 
 #include "main.h"
 
+// Calibration sanity checks (values are also range-checked by tools/throttle_map_editor.py)
+#if APPS_MAX_BITS <= APPS_MIN_BITS
+#error "APPS.h: APPS_MAX_BITS must be greater than APPS_MIN_BITS (divides by the difference)"
+#endif
+#if APPS2_GAIN_X1000 == 0
+#error "APPS.h: APPS2_GAIN_X1000 must not be 0 (divides by it)"
+#endif
+#if APPS_MA_WINDOW_SIZE < 1
+#error "APPS.h: APPS_MA_WINDOW_SIZE must be at least 1"
+#endif
+
 /* ---------------------- Constants ---------------------- */
 /**
  * Configuration constants for APPS module
@@ -28,11 +39,13 @@
 #define APPS_MIN_VALID_VALUE 50       // Minimum valid sensor reading (detect shorts to GND)
 #define APPS_MAX_VALID_VALUE 4050     // Maximum valid sensor reading (detect shorts to VCC)
 #define APPS_SHORT_THRESHOLD 10       // Threshold for detecting sensors shorted together
-#define APPS_TIMEOUT_MS 100           // Error timeout in milliseconds
+#define APPS_TIMEOUT_MS 600           // Error timeout in milliseconds
 #define APPS_PERCENTAGE_MAX 100       // Maximum percentage value (0-100%)
 #define APPS_PERCENTAGE_1000_MAX 999  // Maximum high-resolution percentage value (0-999)
 
 #define APPS_SINGLE_SENSOR_TEST 0     // Set to 1 to bypass APPS2 and error checks (for inverter testing)
+
+// Pedal calibration (0%/100% points, tolerance, hysteresis, APPS2 scale) is in APPS.h
 
 /* ---------------------- Global Debug Instance ---------------------- */
 /**
@@ -55,13 +68,13 @@ static inline void calculate_functional_range(void);
 /**
  * @brief Calculates the effective functional range of the sensors
  *
- * This range is used for mapping sensor values to throttle percentages
- * and factors in the tolerance values.
+ * This range is used for mapping sensor values to throttle percentages.
+ * Tolerance is NOT factored in here - it's only a plausibility margin
+ * for the APPS1/APPS2 disagreement check, not a deadzone on the pedal
+ * travel itself. min_value/max_value are the real 0%/100% points.
  */
 static inline void calculate_functional_range(void) {
-    uint16_t min_threshold = apps_data.config.min_value + apps_data.config.tolerance;
-    uint16_t max_threshold = apps_data.config.max_value - apps_data.config.tolerance;
-    apps_data.state.functional_range = max_threshold - min_threshold;
+    apps_data.state.functional_range = apps_data.config.max_value - apps_data.config.min_value;
 }
 
 /**
@@ -87,6 +100,7 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
     apps_data.state.apps2_raw = 0;
     apps_data.state.apps2_adjusted = 0;
     apps_data.state.mean = 0;
+    apps_data.state.mean_held = min_value;
     apps_data.state.percentage = 0;
     apps_data.state.percentage_1000 = 0;
 }
@@ -104,6 +118,12 @@ void APPS_Init(uint16_t min_value, uint16_t max_value, uint16_t tolerance) {
  * @param apps2 Raw ADC value from APPS2 sensor (0-4095)
  * @return APPS_Result_t Structure with throttle position and error status
  */
+uint8_t APPS_ToThrottlePercent(uint16_t apps1_bits) {
+    if (apps1_bits <= APPS_MIN_BITS) return 0;
+    if (apps1_bits >= APPS_MAX_BITS) return 100;
+    return (uint8_t)(((uint32_t)(apps1_bits - APPS_MIN_BITS) * 100u) / (APPS_MAX_BITS - APPS_MIN_BITS));
+}
+
 APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     APPS_Result_t result = {0};
 
@@ -111,8 +131,17 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     apps_data.state.apps1_raw = apps1;
     apps_data.state.apps2_raw = apps2;
 
-    // Apply proportional adjustment to APPS2 (APPS2 is 2x APPS1)
-    apps_data.state.apps2_adjusted = apps2 >> 1;
+    // Convert APPS2 to APPS1 scale (see APPS2_OFFSET / APPS2_GAIN_X1000)
+    uint32_t apps2_above_offset = (apps2 > APPS2_OFFSET) ? (uint32_t)(apps2 - APPS2_OFFSET) : 0u;
+    apps_data.state.apps2_adjusted = (uint16_t)(apps2_above_offset * 1000u / APPS2_GAIN_X1000);
+
+    // Disagreement tracking for calibration (Live Expressions)
+    apps_data.state.disagreement = (uint16_t)abs((int)apps1 - (int)apps_data.state.apps2_adjusted);
+    if (apps_data.state.disagreement > apps_data.state.disagreement_max) {
+        apps_data.state.disagreement_max = apps_data.state.disagreement;
+        apps_data.state.disagreement_max_apps1 = apps1;
+        apps_data.state.disagreement_max_apps2_raw = apps2;
+    }
 
 #if APPS_SINGLE_SENSOR_TEST
     // TEST MODE: Ignore errors and APPS2, use APPS1 directly
@@ -129,45 +158,56 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
     
     if (!result.error) {
 #else
-    // NORMAL MODE: Check for errors with timeout
+    	// Precalculate thresholds once - the real calibrated 0%/100% points.
+    	// Tolerance is deliberately NOT applied here (see calculate_functional_range).
+		uint16_t min_threshold = apps_data.config.min_value;
+		uint16_t max_threshold = apps_data.config.max_value;
+
+		// Make sure functional range is up to date
+		calculate_functional_range();
+
+    	// NORMAL MODE: Check for errors with timeout
     if (check_error_timeout(apps1, apps_data.state.apps2_adjusted)) {
         // Error condition - zero throttle
         apps_data.state.percentage = 0;
         apps_data.state.percentage_1000 = 0;
         apps_data.state.mean = 0;
+        apps_data.state.mean_held = min_threshold;  // Restart hysteresis from 0% after the error
         result.error = true;
         result.error_type = apps_data.state.error_type;
     } else {
-        // No error - calculate throttle position
-        // Use bit shift for division by 2 (faster than division)
-        apps_data.state.mean = (apps1 + apps_data.state.apps2_adjusted) >> 1;
+        // No error - throttle position comes from APPS1 only.
+        // APPS2 is still used above for the disagreement (plausibility) check.
+        apps_data.state.mean = apps1;
 #endif
 
-        // Precalculate thresholds once
-        uint16_t min_threshold = apps_data.config.min_value + apps_data.config.tolerance;
-        // uint16_t min_threshold = apps_data.config.min_value;
-        uint16_t max_threshold = apps_data.config.max_value - apps_data.config.tolerance;
-        // uint16_t max_threshold = apps_data.config.max_value;
+        // Hysteresis: hold the pedal value until it moves more than APPS_HYSTERESIS_BITS.
+        // Near 0% force exactly 0; at 100% follow immediately so full pedal is always reached.
+        int32_t pedal_change = (int32_t)apps_data.state.mean - (int32_t)apps_data.state.mean_held;
+        if (apps_data.state.mean <= min_threshold + APPS_HYSTERESIS_BITS) {
+            apps_data.state.mean_held = min_threshold;
+        } else if (apps_data.state.mean >= max_threshold) {
+            apps_data.state.mean_held = max_threshold;
+        } else if (abs(pedal_change) > APPS_HYSTERESIS_BITS) {
+            apps_data.state.mean_held = apps_data.state.mean;
+        }
 
-        // Make sure functional range is up to date
-        calculate_functional_range();
-
-        // Determine throttle percentage based on position
-        if (apps_data.state.mean <= min_threshold) {
+        // Determine throttle percentage based on position (after hysteresis)
+        if (apps_data.state.mean_held <= min_threshold) {
             // Below minimum threshold
             apps_data.state.percentage = 0;
             apps_data.state.percentage_1000 = 0;
-        } else if (apps_data.state.mean >= max_threshold) {
+        } else if (apps_data.state.mean_held >= max_threshold) {
             // Above maximum threshold
             apps_data.state.percentage = APPS_PERCENTAGE_MAX;
             apps_data.state.percentage_1000 = APPS_PERCENTAGE_1000_MAX;
         } else {
             // In the active range - map the value
-            uint32_t numerator = (uint32_t)(apps_data.state.mean - min_threshold) * APPS_PERCENTAGE_MAX;
+            uint32_t numerator = (uint32_t)(apps_data.state.mean_held - min_threshold) * APPS_PERCENTAGE_MAX;
             apps_data.state.percentage = numerator / apps_data.state.functional_range;
 
             // Calculate higher resolution percentage
-            numerator = (uint32_t)(apps_data.state.mean - min_threshold) * APPS_PERCENTAGE_1000_MAX;
+            numerator = (uint32_t)(apps_data.state.mean_held - min_threshold) * APPS_PERCENTAGE_1000_MAX;
             apps_data.state.percentage_1000 = numerator / apps_data.state.functional_range;
 
             // Apply bounds checking for calculated percentages
@@ -176,6 +216,8 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
             } else if (apps_data.state.percentage_1000 < 0) {
                 apps_data.state.percentage_1000 = 0;
             }
+
+
 
             if (apps_data.state.percentage > APPS_PERCENTAGE_MAX) {
                 apps_data.state.percentage = APPS_PERCENTAGE_MAX;
@@ -215,7 +257,7 @@ APPS_Result_t APPS_Process(uint16_t apps1, uint16_t apps2) {
 static APPS_ErrorType_t check_apps_errors(uint16_t apps1, uint16_t apps2_raw, uint16_t apps2_adjusted) {
     // Check if values differ by more than 10%
 
-    uint16_t max_difference = apps_data.state.functional_range / 10;
+    uint16_t max_difference = apps_data.config.tolerance;
     if (abs((int)apps1 - (int)apps2_adjusted) > max_difference) {
         return APPS_ERROR_DISAGREEMENT;
     }

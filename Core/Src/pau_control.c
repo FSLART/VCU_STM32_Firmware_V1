@@ -2,6 +2,10 @@
 
 #include "pau_control.h"
 
+#if PAU_POWER_LIMIT_THRESHOLD_W >= PAU_MAX_POWER_W
+#error "pau_control.h: PAU_POWER_LIMIT_THRESHOLD_W must be below PAU_MAX_POWER_W (divides by the difference)"
+#endif
+
 /**
  * @brief Calculate power-limited accelerator value with regen support
  *

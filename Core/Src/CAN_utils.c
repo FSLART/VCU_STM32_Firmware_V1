@@ -6,6 +6,7 @@
 
 #include "autonomous_t26.h"
 #include "data_dbc.h"
+#include "data_t26.h"
 #include "fsic.h"
 #include "powertrain_t26.h"
 
@@ -18,19 +19,12 @@
 //CAN 2 - POWERTRAIN
 //CAN 3 - AUTONOMOUS
 #define BRAKE_PRESSURE_ID 0x710
-// Initialize all signals to 0
-VCU_Signals_t vcu = {
-    .precharge_signal = false,
-
-    .r2d_button_signal = false,
-    .r2d_toggle_signal = false,
-    .r2d_button_prev = false,
-    // All other fields will be initialized to 0/false by default
-};
+// All VCU signals start at 0/false
+VCU_Signals_t vcu = {0};
 
 //Variables
 //APPS Loss of comms tick
-volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x710 message came through
+volatile uint32_t last_apps_can_rx_time = 0; // keeps track of the last time a valid 0x50 message came through
 volatile uint32_t last_acu_can_rx_time = 0;
 __attribute__((section(".adcarray"))) uint16_t ADC2_APPS[2];  // ADC2_IN5(apps 1) and ADC2_IN6(apps 2)
 volatile uint8_t debug_res_signal = 0;
@@ -462,6 +456,22 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
 #endif
             __enable_irq();  // Unlock interrupts so MovingAverage_Update() can get to reading them
 
+            // APPS frame period stats for Live Expressions
+            if (vcu.apps_dt_reset) {
+                vcu.apps_dt_reset = false;
+                vcu.apps_rx_count = 0;
+                vcu.apps_dt_min_ms = 0;
+                vcu.apps_dt_max_ms = 0;
+            }
+            if (vcu.apps_rx_count > 0) {
+                uint32_t dt = msg->timestamp - vcu.apps_prev_rx_timestamp;
+                vcu.apps_dt_ms = dt;
+                if (vcu.apps_rx_count == 1 || dt < vcu.apps_dt_min_ms) vcu.apps_dt_min_ms = dt;
+                if (dt > vcu.apps_dt_max_ms) vcu.apps_dt_max_ms = dt;
+            }
+            vcu.apps_prev_rx_timestamp = msg->timestamp;
+            vcu.apps_rx_count++;
+
             last_apps_can_rx_time = HAL_GetTick(); // Reset the safety timer (For checking comms)
             break;
         }
@@ -471,13 +481,18 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             powertrain_t26_dash_board_unpack(&db_msg, data, msg->dlc);
             uint32_t current_time = HAL_GetTick();
 
+            // Raw button bits as received (Live Expressions)
+            vcu.dash_rx_count++;
+            vcu.ignition_button_raw = db_msg.ignition_switch_raw;
+            vcu.r2d_button_raw = db_msg.r2d_button_raw;
+
             // Process ignition as a momentary button with 50ms debounce (toggle on falling edge / button release)
-            if (db_msg.ignition_switch_raw != vcu.ignition_button_prev && (current_time - vcu.ignition_last_toggle_time > 50)) {
-                if (!db_msg.ignition_switch_raw) {
+            if (db_msg.ignition_switch_raw != vcu.ignition_button_prev && (current_time - vcu.ignition_last_edge_time > 50)) {
+                if (!db_msg.ignition_switch_raw && vcu.shutdown_signal == 1) {
                     vcu.ignition_toggle_signal = !vcu.ignition_toggle_signal;
                 }
                 vcu.ignition_button_prev = db_msg.ignition_switch_raw;
-                vcu.ignition_last_toggle_time = current_time;
+                vcu.ignition_last_edge_time = current_time;
             }
             vcu.ignition_switch_signal = vcu.ignition_toggle_signal;
 
@@ -485,16 +500,22 @@ void decode_powertrain_bus(const can_msg_t *msg, BMSvars_t* bms, FSIC_t* fsic1, 
             // Entering R2D (any state other than STATE_READY_MANUAL) only toggles on if the brake
             // is held at the same instant as the press - this is the actual FSG plausibility
             // requirement. Leaving R2D (already in STATE_READY_MANUAL) only needs the press.
-            if (db_msg.r2d_button_raw != vcu.r2d_button_prev && (current_time - vcu.r2d_last_toggle_time > 50)) {
+            if (db_msg.r2d_button_raw != vcu.r2d_button_prev && (current_time - vcu.r2d_last_edge_time > 50)) {
                 if (!db_msg.r2d_button_raw) {
                     bool brake_ok = Bypass_brake_pressure ||
-                                    ((vcu.brake_pressure > BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0));
+                                    ((vcu.brake_pressure >= BRAKE_PRESSURE_THRESHOLD) && (result.percentage == 0));
                     if (current_state == STATE_READY_MANUAL || brake_ok) {
                         vcu.r2d_toggle_signal = !vcu.r2d_toggle_signal;
                     }
+
+                    // What the R2D check saw at this release (Live Expressions)
+                    vcu.r2d_release_brake_bar = vcu.brake_pressure;
+                    vcu.r2d_release_apps_pct = (uint8_t)result.percentage;
+                    vcu.r2d_release_state = (uint8_t)current_state;
+                    vcu.r2d_release_accepted = (current_state == STATE_READY_MANUAL || brake_ok);
                 }
                 vcu.r2d_button_prev = db_msg.r2d_button_raw;
-                vcu.r2d_last_toggle_time = current_time;
+                vcu.r2d_last_edge_time = current_time;
             }
 
             break;
@@ -672,6 +693,13 @@ void decode_autonomous_bus(const can_msg_t *msg, AS_System_t *as_system, ACU_t *
             uint16_t raw_pressure = (data[1] << 8) | data[0];
             uint8_t resulting_pressure = raw_pressure * 0.1;
             vcu.brake_pressure = resulting_pressure;
+
+            // Raw frame debug for Live Expressions
+            vcu.brake_raw = raw_pressure;
+            vcu.brake_dlc = msg->dlc;
+            memcpy(vcu.brake_raw_data, data, 8);
+            vcu.brake_rx_count++;
+            vcu.brake_last_rx_time = msg->timestamp;
             break;
         }
         default:
@@ -873,6 +901,17 @@ void can_bus_send_vcu_apps_raw(CAN_HandleTypeDef *hcan, uint8_t apps1_raw, uint8
     data.message[7] = (uint8_t)((apps_1000 >> 8) & 0xFF);  // High byte of apps_1000
 
     can_bus_send(hcan, data.id, data.message, data.length);
+}
+
+void can_bus_send_aqt1_throttle(CAN_HandleTypeDef *hcan, uint8_t throttle_percent) {
+    struct data_t26_aqt1_t aqt1;
+    data_t26_aqt1_init(&aqt1);
+    aqt1.throtle_percentage = throttle_percent;
+
+    uint8_t data[DATA_T26_AQT1_LENGTH];
+    if (data_t26_aqt1_pack(data, &aqt1, sizeof(data)) >= 0) {
+        can_bus_send(hcan, DATA_T26_AQT1_FRAME_ID, data, DATA_T26_AQT1_LENGTH);
+    }
 }
 
 void can_bus_send_vcu_state(void) {
