@@ -75,6 +75,7 @@
 #include "can_queue.h"
 #include "pau_control.h"
 #include "throttle_control.h"
+#include "traction_control_torque_vectoring.h"
 
 #pragma endregion Includes
 /* -------------------- GLOBAL VARIABLES -------------------- */
@@ -1224,8 +1225,7 @@ void process_can_rx_queues(void) {
 
 	/* CAN1 — Data bus */
 	while (can_queue_pop(&can1_rx_queue, &msg)) {
-		// Future: decode data bus messages
-		(void) msg;
+		vehicle_sensors_can_receive(&msg);  // front wheel speeds (traction control, torque vectoring)
 	}
 
 	/* CAN2 — Powertrain */
@@ -1236,6 +1236,7 @@ void process_can_rx_queues(void) {
 	/* CAN3 — Autonomous */
 	while (can_queue_pop(&can3_rx_queue, &msg)) {
 		decode_autonomous_bus(&msg, (AS_System_t*) &as_system, (ACU_t*) &acu, (RES_t*) &res);
+		vehicle_sensors_can_receive(&msg);  // steering angle
 	}
 }
 

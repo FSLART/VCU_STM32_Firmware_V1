@@ -17,10 +17,15 @@
  *                     the pedal is stabbed. Decreases are instant. (Low-speed traction
  *                     limiting is in the map itself: lower drive values at low speed.)
  *   7. Digital BSPD   LAST: when active, drive and regen are 0, whatever came before
+ *   8. Traction       traction control (PI controller per rear wheel) + torque vectoring
+ *      control +      (feedforward), traction_control_torque_vectoring.h: drive_cmd_1000 -> one
+ *      torque         drive command per motor, drive_command_left_1000 / drive_command_right_1000.
+ *      vectoring      Only reduces or moves drive torque; with TRACTION_CONTROL_ENABLE and
+ *                     TORQUE_VECTORING_ENABLE 0 both = drive_cmd_1000.
  *
  *   throttle_control_send() then sends exactly one command per inverter:
- *     regen > 0 -> SetRelBrakeCurrent(regen), otherwise SetRelCurrent(drive)
- *   Both inverters always get the same command, so there is never a yaw moment.
+ *     regen > 0 -> SetRelBrakeCurrent(regen) (same on both),
+ *     otherwise SetRelCurrent(drive_command_left_1000 / drive_command_right_1000)
  *
  * All values are per mille: 0..1000 = 0..100.0 % of the inverter's configured maximum
  * (max current for drive, max brake current for regen).
@@ -106,7 +111,9 @@ typedef struct {
     uint16_t regen_target_1000;    // Regen wanted, before the ramp
 
     // 5..7. Commands sent to the inverters
-    uint16_t drive_cmd_1000;       // -> SetRelCurrent
+    uint16_t drive_cmd_1000;       // Drive, same for both motors (before step 8)
+    uint16_t drive_command_left_1000;   // 8. -> SetRelCurrent, rear left motor
+    uint16_t drive_command_right_1000;  // 8. -> SetRelCurrent, rear right motor
     uint16_t regen_cmd_1000;       // -> SetRelBrakeCurrent
     throttle_status_t status;
 

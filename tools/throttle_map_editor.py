@@ -5,6 +5,7 @@ Tabs:
   Mapa                    Core/Inc/throttle_map_data.h: relative-current map (accelerator x
                           vehicle speed). The whole file is rewritten on save.
   Conducao                Driving #defines (regen, ramps, PAU, speed calculation).
+  Tracao / Vetorizacao    Traction control (PI) and torque vectoring (traction_control_torque_vectoring.h).
   Calibracao / Seguranca  APPS calibration, BSPD, R2D, inverter brake limits.
                           Locked until "Desbloquear" is ticked.
 
@@ -158,17 +159,42 @@ def read_config(path):
 
 # =============================== SETTINGS ===============================
 
-DRIVING, SAFETY = "Conducao", "Calibracao / Seguranca"
-TC, PAU, APPS_H, APPS_C, BSPD, CANU = (
+DRIVING, SAFETY, TRACTION = "Conducao", "Calibracao / Seguranca", "Tracao / Vetorizacao"
+TC, PAU, APPS_H, APPS_C, BSPD, CANU, TCTV = (
     "Core/Inc/throttle_control.h",
     "Core/Inc/pau_control.h",
     "Core/Inc/APPS.h",
     "Core/Src/APPS.c",
     "Core/Inc/bspd.h",
     "Core/Inc/CAN_utils.h",
+    "Core/Inc/traction_control_torque_vectoring.h",
 )
 
 Setting = namedtuple("Setting", "tab file name kind lo hi label")
+# Traction control (PI per rear wheel) and torque vectoring (feedforward), see the .h
+TCTV_SETTINGS = [
+    Setting(TRACTION, TCTV, *row)
+    for row in [
+        ("TRACTION_CONTROL_ENABLE", "bool", 0, 1, "Controlo de tracao ligado"),
+        ("TORQUE_VECTORING_ENABLE", "bool", 0, 1, "Vetorizacao de binario ligada"),
+        ("INVERTER_ID_REAR_LEFT", "int", 1, 2, "Inversor da roda traseira ESQUERDA (1 ou 2)"),
+        ("VEHICLE_WHEELBASE_M", "float", 0.5, 3, "Entre-eixos (m)"),
+        ("STEERING_RATIO", "float", 0.5, 50, "Relacao volante / roda (angulo volante / angulo roda)"),
+        ("STEERING_SIGN", "float", -1, 1, "Sinal do volante (-1 se virar a esquerda da angulo negativo)"),
+        ("STEERING_OFFSET_DEG", "float", -45, 45, "Angulo do volante com as rodas direitas (graus)"),
+        ("SENSOR_TIMEOUT_MS", "int", 10, 1000, "Frame de sensor mais velha que isto = sensor em falta (ms)"),
+        ("TRACTION_CONTROL_SLIP_TARGET", "float", 0, 1, "TC: patinagem permitida antes de cortar"),
+        ("TRACTION_CONTROL_SPEED_MARGIN_KMH", "float", 0, 20, "TC: margem de velocidade (km/h)"),
+        ("TRACTION_CONTROL_MINIMUM_SPEED_KMH", "float", 0, 50, "TC: desligado abaixo de (km/h, roda da frente)"),
+        ("TRACTION_CONTROL_PROPORTIONAL_GAIN", "float", 0, 5, "TC: ganho P (corte por km/h)"),
+        ("TRACTION_CONTROL_INTEGRAL_GAIN", "float", 0, 20, "TC: ganho I (corte por km/h por segundo)"),
+        ("TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR", "float", 0, 1, "TC: nunca menos que isto x o pedido"),
+        ("TORQUE_VECTORING_GAIN_PER_G", "float", 0, 1, "TV: desvio de binario por g lateral"),
+        ("TORQUE_VECTORING_MAXIMUM_SHIFT", "float", 0, 1, "TV: desvio maximo (0.15 = +-15 %)"),
+        ("TORQUE_VECTORING_MINIMUM_SPEED_KMH", "float", 0, 100, "TV: desligado abaixo de (km/h)"),
+        ("TORQUE_VECTORING_SHIFT_RATE_PER_S", "float", 0, 20, "TV: o desvio muda no maximo isto por segundo"),
+    ]
+]
 SETTINGS = [
     Setting(DRIVING, TC, "THROTTLE_REGEN_ENABLE", "bool", 0, 1, "Regen ligada"),
     Setting(
@@ -394,6 +420,7 @@ SETTINGS = [
         "Limite de travagem DC por inversor (A)",
     ),
 ]
+SETTINGS += TCTV_SETTINGS
 BY_NAME = {s.name: s for s in SETTINGS}
 
 # '#define NAME <number>[U|f]' followed only by spaces and an optional // comment
@@ -660,6 +687,7 @@ def run_gui():
     setting_tabs = {
         DRIVING: tk.Frame(tabs, padx=8, pady=8),
         SAFETY: tk.Frame(tabs, padx=8, pady=8),
+        TRACTION: tk.Frame(tabs, padx=8, pady=8),
     }
     for name, frame in setting_tabs.items():
         tabs.add(frame, text=name)
@@ -1010,7 +1038,7 @@ def run_gui():
         for name, (var, widget, note) in fields.items():
             s = BY_NAME[name]
             editable = loaded.get(name) is not None and (
-                s.tab == DRIVING or unlock.get()
+                s.tab != SAFETY or unlock.get()
             )
             widget.config(state="normal" if editable else "disabled")
 
@@ -1046,7 +1074,7 @@ def run_gui():
         command=apply_states,
         fg="red",
     ).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
-    row_of = {DRIVING: 0, SAFETY: 1}
+    row_of = {DRIVING: 0, SAFETY: 1, TRACTION: 0}
     for s in SETTINGS:
         frame = setting_tabs[s.tab]
         r = row_of[s.tab]
@@ -1328,13 +1356,17 @@ def run_gui():
         for widget in live_frame.winfo_children():
             widget.destroy()
         live_labels.clear()
+        rows = (len(link.variables) + 1) // 2  # two columns: the full list does not fit the window height
         for i, v in enumerate(link.variables):
-            tk.Label(live_frame, text=v.label, anchor="w").grid(row=i, column=0, sticky="w")
-            live_labels[v.expr] = tk.Label(live_frame, text="-", width=24, anchor="e", font=("Consolas", 10, "bold"))
-            live_labels[v.expr].grid(row=i, column=1, sticky="e")
+            column = 2 * (i // rows)
+            tk.Label(live_frame, text=v.label, anchor="w").grid(row=i % rows, column=column, sticky="w",
+                                                                padx=(12 if column else 0, 0))
+            live_labels[v.expr] = tk.Label(live_frame, text="-", width=24 if v.kind == "enum" else 8, anchor="e",
+                                           font=("Consolas", 10, "bold"))
+            live_labels[v.expr].grid(row=i % rows, column=column + 1, sticky="e")
         for j, expr in enumerate(link.missing):
             tk.Label(live_frame, text=f"{expr}: nao existe no ELF", fg="gray").grid(
-                row=len(link.variables) + j, column=0, columnspan=2, sticky="w")
+                row=rows + j, column=0, columnspan=4, sticky="w")
         live_button.config(text="Desligar VCU")
         status.config(text="Ligado a VCU (ST-LINK) - so leitura", fg="green")
         poll_live()

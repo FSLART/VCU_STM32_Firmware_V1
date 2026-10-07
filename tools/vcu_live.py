@@ -20,7 +20,6 @@ import shutil
 import struct
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,6 +48,20 @@ LIVE_VARS = [
     ("apps_data.config.min_value", "APPS1 a 0 % (bits)", 1),
     ("apps_data.config.max_value", "APPS1 a 100 % (bits)", 1),
     ("vcu.brake_pressure", "Travao (bar)", 1),
+    # Traction control / torque vectoring (traction_control_torque_vectoring.h)
+    ("vehicle_sensors.front_wheel_speed_valid", "Rodas da frente OK", 1),
+    ("vehicle_sensors.steering_angle_valid", "Volante OK", 1),
+    ("vehicle_sensors.front_left_speed_kmh", "Roda frente esq. (km/h)", 1),
+    ("vehicle_sensors.front_right_speed_kmh", "Roda frente dir. (km/h)", 1),
+    ("vehicle_sensors.rear_left_speed_kmh", "Roda tras esq. (km/h)", 1),
+    ("vehicle_sensors.rear_right_speed_kmh", "Roda tras dir. (km/h)", 1),
+    ("vehicle_sensors.road_wheel_angle_deg", "Angulo da roda (graus, > 0 esq.)", 1),
+    ("vehicle_sensors.lateral_acceleration_g", "Acel. lateral (g)", 1),
+    ("torque_vectoring.shift", "TV: desvio (> 0 = mais a direita)", 1),
+    ("traction_control.rear_left.torque_factor", "TC: fator tras esq.", 1),
+    ("traction_control.rear_right.torque_factor", "TC: fator tras dir.", 1),
+    ("throttle.drive_command_left_1000", "Tracao motor esq. (%)", 0.1),
+    ("throttle.drive_command_right_1000", "Tracao motor dir. (%)", 0.1),
 ]
 # Flash regions that must match the ELF before any address is trusted
 CHECK_SYMBOLS = ["g_pfnVectors", "throttle_map"]
@@ -83,7 +96,9 @@ class Var:
             return "SIM" if value else "nao"
         if self.kind == "enum":
             return self.enum_names.get(value, str(value))
-        if self.kind == "f" or self.scale != 1:
+        if self.kind == "f":
+            return f"{value * self.scale:.2f}"  # TC factor, TV shift, g: 1 decimal is too coarse
+        if self.scale != 1:
             return f"{value * self.scale:.1f}"
         return str(value)
 
@@ -132,13 +147,10 @@ def resolve(elf=ELF_FILE):
         lines += [f"echo @@v{i}\\n", f"print (unsigned long)&({expr})", f"print sizeof({expr})", f"ptype {expr}"]
     for j, sym in enumerate(CHECK_SYMBOLS):
         lines += [f"echo @@c{j}\\n", f"print (unsigned long)&{sym}", f"x/{CHECK_BYTES}xb &{sym}"]
-    with tempfile.NamedTemporaryFile("w", suffix=".gdb", delete=False) as script:
-        script.write("\n".join(lines) + "\n")
-    try:
-        out = subprocess.run([find_gdb(), "-batch", "-nx", "-q", str(elf), "-x", script.name],
-                             capture_output=True, text=True, timeout=60).stdout
-    finally:
-        Path(script.name).unlink(missing_ok=True)
+    # One -ex per command: an expression missing from this ELF only fails its own command
+    # (a -x script stops at the first error and would lose every variable after it)
+    out = subprocess.run([find_gdb(), "-batch", "-nx", "-q", str(elf), *(a for line in lines for a in ("-ex", line))],
+                         capture_output=True, text=True, timeout=60).stdout
 
     sections = dict(re.findall(r"@@(\w+)\n(.*?)(?=@@|\Z)", out, flags=re.DOTALL))
     variables, missing = [], []

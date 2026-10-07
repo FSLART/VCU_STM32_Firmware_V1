@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "pau_control.h"
+#include "traction_control_torque_vectoring.h"
 #include "throttle_map.h"
 
 #if (THROTTLE_REGEN_RAMP_UP_MS <= 0) || (THROTTLE_REGEN_RAMP_DOWN_MS <= 0)
@@ -79,6 +80,7 @@ static uint16_t rate_limit(uint16_t current, uint16_t target, uint32_t rate_per_
 void throttle_control_reset(void) {
     memset(&throttle, 0, sizeof(throttle));
     throttle.first_update = true;
+    traction_control_torque_vectoring_reset();
 }
 
 void throttle_control_update(const APPS_Result_t *apps, bool bspd_active, const FSIC_t *inv1,
@@ -153,6 +155,13 @@ void throttle_control_update(const APPS_Result_t *apps, bool bspd_active, const 
         t->regen_cmd_1000 = 0;
     }
 
+    /* --- 8. Traction control + torque vectoring: one drive command per motor --- */
+    const FSIC_t *inverter_rear_left = (INVERTER_ID_REAR_LEFT == 1) ? inv1 : inv2;
+    const FSIC_t *inverter_rear_right = (INVERTER_ID_REAR_LEFT == 1) ? inv2 : inv1;
+    traction_control_torque_vectoring_update(t->drive_cmd_1000, inverter_rear_left->Actual_ERPM,
+                                             inverter_rear_right->Actual_ERPM, now_ms, dt_ms,
+                                             &t->drive_command_left_1000, &t->drive_command_right_1000);
+
     /* --- Status for Live Expressions --- */
     if (t->bspd_active) {
         t->status = THROTTLE_STATUS_BSPD_CUT;
@@ -185,8 +194,9 @@ void throttle_control_send(CAN_HandleTypeDef *hcan, uint32_t now_ms) {
         can_bus_send_FSIC_SetRelBrakeCurrent(1, (int16_t)throttle.regen_cmd_1000, hcan);
         can_bus_send_FSIC_SetRelBrakeCurrent(2, (int16_t)throttle.regen_cmd_1000, hcan);
     } else {
-        can_bus_send_FSIC_SetRelCurrent(1, (int16_t)throttle.drive_cmd_1000, hcan);
-        can_bus_send_FSIC_SetRelCurrent(2, (int16_t)throttle.drive_cmd_1000, hcan);
+        // Drive: per motor, after traction control / torque vectoring (= drive_cmd_1000 when off)
+        can_bus_send_FSIC_SetRelCurrent(INVERTER_ID_REAR_LEFT, (int16_t)throttle.drive_command_left_1000, hcan);
+        can_bus_send_FSIC_SetRelCurrent(INVERTER_ID_REAR_RIGHT, (int16_t)throttle.drive_command_right_1000, hcan);
     }
 
 #if THROTTLE_SEND_BRAKE_LIMITS
