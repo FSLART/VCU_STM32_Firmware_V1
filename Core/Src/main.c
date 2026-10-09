@@ -1149,7 +1149,11 @@ void execute_10ms_tasks(void) {
 
 		can_bus_send_vcu_apps_raw(&hcan3, ADC2_APPS[0], ADC2_APPS[1], 0, 0, bspd_state.bspd_active, result.error_type, result.percentage_1000);
 
-		// Send VCU_state DBC message on CAN2 (via TX queue)
+		// Wheel speed / steering values in every state (the control step only updates them in READY_MANUAL)
+		vehicle_sensors_update((INVERTER_ID_REAR_LEFT == 1) ? myFSIC1.Actual_ERPM : myFSIC2.Actual_ERPM,
+				(INVERTER_ID_REAR_LEFT == 1) ? myFSIC2.Actual_ERPM : myFSIC1.Actual_ERPM, current_telemetry_time);
+
+		// Send VCU_state DBC message on CAN2 (via TX queue): state + traction control / torque vectoring debug
 		can_bus_send_vcu_state();
 
 		// Throttle percentage (APPS1 -> 0..100 %) on the data bus, AQT1 0x700

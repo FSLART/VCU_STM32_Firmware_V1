@@ -9,6 +9,8 @@
 #include "data_t26.h"
 #include "fsic.h"
 #include "powertrain_t26.h"
+#include "throttle_control.h"                    // VCU_states debug: throttle
+#include "traction_control_torque_vectoring.h"  // VCU_states debug: traction control, torque vectoring
 
 // RPM to KM/H conversion macro: 1000 RPM = 24.54 km/h
 #define RPM_TO_KMH(rpm) ((rpm) * 0.02454f)
@@ -924,12 +926,33 @@ void can_bus_send_aqt1_throttle(CAN_HandleTypeDef *hcan, uint8_t throttle_percen
     }
 }
 
+static float clamp_float(float value, float minimum, float maximum) {
+    return (value < minimum) ? minimum : ((value > maximum) ? maximum : value);
+}
+
 void can_bus_send_vcu_state(void) {
-    // Send VCU_state DBC message on CAN2 (via TX queue) 
-    struct powertrain_t26_vcu_states_t state_msg; 
-    powertrain_t26_vcu_states_init(&state_msg); 
-    state_msg.vcu_state = (uint8_t)current_state; 
- 
+    // VCU_states on CAN2 (via TX queue): VCU state + traction control / torque vectoring debug
+    static uint8_t counter = 0;
+    const vehicle_sensors_t *s = &vehicle_sensors;
+    struct powertrain_t26_vcu_states_t state_msg;
+    powertrain_t26_vcu_states_init(&state_msg);
+    state_msg.vcu_state = (uint8_t)current_state;
+    state_msg.throttle_status = (uint8_t)throttle.status;
+    state_msg.tc_state = (uint8_t)traction_control.state;
+    state_msg.tv_state = (uint8_t)torque_vectoring.state;
+    state_msg.front_wheel_speed_ok = s->front_wheel_speed_valid;
+    state_msg.steering_angle_ok = s->steering_angle_valid;
+    // Clamped to the signal ranges: the generated encoders do not clamp, out of range values would wrap
+    state_msg.front_left_speed = powertrain_t26_vcu_states_front_left_speed_encode(clamp_float(s->front_left_speed_kmh, 0.0f, 127.5f));
+    state_msg.front_right_speed = powertrain_t26_vcu_states_front_right_speed_encode(clamp_float(s->front_right_speed_kmh, 0.0f, 127.5f));
+    state_msg.tc_factor_rear_left = powertrain_t26_vcu_states_tc_factor_rear_left_encode(
+        clamp_float(traction_control.rear_left.torque_factor * 100.0f, 0.0f, 100.0f));
+    state_msg.tc_factor_rear_right = powertrain_t26_vcu_states_tc_factor_rear_right_encode(
+        clamp_float(traction_control.rear_right.torque_factor * 100.0f, 0.0f, 100.0f));
+    state_msg.tv_shift = powertrain_t26_vcu_states_tv_shift_encode(clamp_float(torque_vectoring.shift * 100.0f, -64.0f, 63.0f));
+    state_msg.road_wheel_angle = powertrain_t26_vcu_states_road_wheel_angle_encode(clamp_float(s->road_wheel_angle_deg, -32.0f, 31.75f));
+    state_msg.vcu_states_counter = counter++ & 0x0F;
+
     uint8_t state_data[8]; 
     int pack_size = powertrain_t26_vcu_states_pack(state_data, &state_msg, sizeof(state_data)); 
     if (pack_size >= 0) { 

@@ -83,7 +83,7 @@
 
 /* ============================== TYPES =============================== */
 
-typedef enum {
+typedef enum {  // Sent in VCU_states.throttle_status (powertrain DBC) - keep its value table in sync
     THROTTLE_STATUS_COAST = 0,             // Map gives zero torque here
     THROTTLE_STATUS_DRIVE,                 // Driving
     THROTTLE_STATUS_REGEN,                 // Regenerating

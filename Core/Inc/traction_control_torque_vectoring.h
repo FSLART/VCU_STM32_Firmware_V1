@@ -78,7 +78,7 @@
 #define STEERING_SIGN           1.0f                         // -1.0f if turning left gives a negative steering angle
 #define STEERING_OFFSET_DEG     0.0f                         // Steering angle with the wheels straight
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)
-#define SENSOR_TIMEOUT_MS       100                          // Frame older than this -> sensor missing
+#define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
 
 /* ========================== TRACTION CONTROL ========================= */
 // Simulation (loadParams.m section 10): tyre peak at slip 0.097, 97 % of the peak force at 0.15.
@@ -121,8 +121,20 @@ typedef struct {
 } vehicle_sensors_t;
 
 // 2. Torque vectoring (feedforward)
+typedef enum {  // Sent in VCU_states.tv_state (powertrain DBC) - keep its value table in sync
+    TORQUE_VECTORING_STATE_DISABLED = 0,          // TORQUE_VECTORING_ENABLE 0
+    TORQUE_VECTORING_STATE_NO_FRONT_WHEEL_SPEED,  // Off: AQT2 missing
+    TORQUE_VECTORING_STATE_NO_STEERING_ANGLE,     // Off: AQT4 missing
+    TORQUE_VECTORING_STATE_BELOW_MIN_SPEED,       // Off: below TORQUE_VECTORING_MINIMUM_SPEED_KMH
+    TORQUE_VECTORING_STATE_STRAIGHT,              // On, no shift
+    TORQUE_VECTORING_STATE_MORE_TORQUE_RIGHT,     // On, shift > 0 (left turn)
+    TORQUE_VECTORING_STATE_MORE_TORQUE_LEFT,      // On, shift < 0 (right turn)
+    TORQUE_VECTORING_STATE_AT_MAX_SHIFT,          // On, shift at +-TORQUE_VECTORING_MAXIMUM_SHIFT
+} torque_vectoring_state_t;
+
 typedef struct {
     float shift;                        // > 0: right wheel x (1 + shift), left wheel x (1 - shift)
+    torque_vectoring_state_t state;
 } torque_vectoring_t;
 
 // 3. Traction control: PI controller of one rear wheel
@@ -133,9 +145,21 @@ typedef struct {
     float torque_factor;                // 1 - proportional - integral, 1 = no cut
 } traction_control_wheel_t;
 
+typedef enum {  // Sent in VCU_states.tc_state (powertrain DBC) - keep its value table in sync
+    TRACTION_CONTROL_STATE_DISABLED = 0,          // TRACTION_CONTROL_ENABLE 0
+    TRACTION_CONTROL_STATE_NO_FRONT_WHEEL_SPEED,  // Off: AQT2 missing
+    TRACTION_CONTROL_STATE_NO_DRIVE,              // No drive command (pedal released, regen, BSPD, ...)
+    TRACTION_CONTROL_STATE_BELOW_MIN_SPEED,       // Off: front wheels below TRACTION_CONTROL_MINIMUM_SPEED_KMH
+    TRACTION_CONTROL_STATE_GRIP,                  // On, not cutting
+    TRACTION_CONTROL_STATE_CUT_REAR_LEFT,         // Cutting the rear left motor
+    TRACTION_CONTROL_STATE_CUT_REAR_RIGHT,        // Cutting the rear right motor
+    TRACTION_CONTROL_STATE_CUT_BOTH,              // Cutting both
+} traction_control_state_t;
+
 typedef struct {
     traction_control_wheel_t rear_left;
     traction_control_wheel_t rear_right;
+    traction_control_state_t state;
 } traction_control_t;
 
 extern vehicle_sensors_t vehicle_sensors;
@@ -149,6 +173,13 @@ void traction_control_torque_vectoring_reset(void);
 
 /** @brief Read the front wheel speed and steering frames. Call for every received frame (CAN1, CAN3). */
 void vehicle_sensors_can_receive(const can_msg_t *message);
+
+/**
+ * @brief Recompute vehicle_sensors from the last frames and the motor ERPM (no state kept: safe to
+ *        call twice). Called by the control step, and every 10 ms in all states for VCU_states and
+ *        Live Expressions (the control step only runs in READY_MANUAL).
+ */
+void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_erpm, uint32_t now_ms);
 
 /**
  * @brief One control step: sensors -> torque vectoring -> traction control -> one drive command per motor

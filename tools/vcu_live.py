@@ -63,6 +63,8 @@ LIVE_VARS = [
     ("vehicle_sensors.rear_right_speed_kmh", "Roda tras dir. (km/h)", 1),
     ("vehicle_sensors.road_wheel_angle_deg", "Angulo da roda (graus, > 0 esq.)", 1),
     ("vehicle_sensors.lateral_acceleration_g", "Acel. lateral (g)", 1),
+    ("traction_control.state", "TC: estado", 1),
+    ("torque_vectoring.state", "TV: estado", 1),
     ("torque_vectoring.shift", "TV: desvio (> 0 = mais a direita)", 1),
     ("traction_control.rear_left.speed_error_kmh", "TC: erro tras esq. (km/h, > 0 = patina)", 1),
     ("traction_control.rear_right.speed_error_kmh", "TC: erro tras dir. (km/h, > 0 = patina)", 1),

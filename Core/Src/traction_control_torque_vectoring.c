@@ -34,7 +34,7 @@ static float speed_kmh_from_wheel_rpm(float wheel_rpm, float radius_m) {
 
 /* ========================= 1. VEHICLE SENSORS ======================== */
 
-static void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_erpm, uint32_t now_ms) {
+void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_erpm, uint32_t now_ms) {
     vehicle_sensors_t *s = &vehicle_sensors;
 
     s->front_wheel_speed_valid = (now_ms - s->front_wheel_frame_time_ms) <= SENSOR_TIMEOUT_MS;
@@ -67,17 +67,42 @@ static void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_er
  */
 static void torque_vectoring_update(float time_step_s) {
     const vehicle_sensors_t *s = &vehicle_sensors;
+    torque_vectoring_t *tv = &torque_vectoring;
+
+    bool active = false;
+    if (!TORQUE_VECTORING_ENABLE) {
+        tv->state = TORQUE_VECTORING_STATE_DISABLED;
+    } else if (!s->front_wheel_speed_valid) {
+        tv->state = TORQUE_VECTORING_STATE_NO_FRONT_WHEEL_SPEED;
+    } else if (!s->steering_angle_valid) {
+        tv->state = TORQUE_VECTORING_STATE_NO_STEERING_ANGLE;
+    } else if (s->vehicle_speed_kmh < TORQUE_VECTORING_MINIMUM_SPEED_KMH) {
+        tv->state = TORQUE_VECTORING_STATE_BELOW_MIN_SPEED;
+    } else {
+        active = true;
+    }
 
     float target_shift = 0.0f;
-    if (TORQUE_VECTORING_ENABLE && s->front_wheel_speed_valid && s->steering_angle_valid &&
-        s->vehicle_speed_kmh >= TORQUE_VECTORING_MINIMUM_SPEED_KMH) {
+    if (active) {
         target_shift = clamp(TORQUE_VECTORING_GAIN_PER_G * s->lateral_acceleration_g, -TORQUE_VECTORING_MAXIMUM_SHIFT,
                              TORQUE_VECTORING_MAXIMUM_SHIFT);
     }
 
     // Rate limit: the shift moves at most TORQUE_VECTORING_SHIFT_RATE_PER_S
     float maximum_change = TORQUE_VECTORING_SHIFT_RATE_PER_S * time_step_s;
-    torque_vectoring.shift += clamp(target_shift - torque_vectoring.shift, -maximum_change, maximum_change);
+    tv->shift += clamp(target_shift - tv->shift, -maximum_change, maximum_change);
+
+    if (active) {
+        if (TORQUE_VECTORING_MAXIMUM_SHIFT > 0.0f && fabsf(tv->shift) >= 0.999f * TORQUE_VECTORING_MAXIMUM_SHIFT) {
+            tv->state = TORQUE_VECTORING_STATE_AT_MAX_SHIFT;
+        } else if (tv->shift > 0.005f) {
+            tv->state = TORQUE_VECTORING_STATE_MORE_TORQUE_RIGHT;
+        } else if (tv->shift < -0.005f) {
+            tv->state = TORQUE_VECTORING_STATE_MORE_TORQUE_LEFT;
+        } else {
+            tv->state = TORQUE_VECTORING_STATE_STRAIGHT;
+        }
+    }
 }
 
 /* ===================== 3. TRACTION CONTROL (PI controller) ============ */
@@ -150,12 +175,34 @@ void traction_control_torque_vectoring_update(uint16_t drive_command_1000, int32
     /* 3. Traction control: each rear wheel against the front wheel on its side */
     bool traction_control_active = TRACTION_CONTROL_ENABLE && s->front_wheel_speed_valid && drive_command_1000 > 0;
     float cos_road_wheel_angle = cosf(s->road_wheel_angle_deg * DEGREES_TO_RADIANS);
+    float reference_left_kmh = s->front_left_speed_kmh * cos_road_wheel_angle;
+    float reference_right_kmh = s->front_right_speed_kmh * cos_road_wheel_angle;
     traction_control_proportional_integral_controller(&traction_control.rear_left, traction_control_active,
-                                                      s->rear_left_speed_kmh,
-                                                      s->front_left_speed_kmh * cos_road_wheel_angle, time_step_s);
+                                                      s->rear_left_speed_kmh, reference_left_kmh, time_step_s);
     traction_control_proportional_integral_controller(&traction_control.rear_right, traction_control_active,
-                                                      s->rear_right_speed_kmh,
-                                                      s->front_right_speed_kmh * cos_road_wheel_angle, time_step_s);
+                                                      s->rear_right_speed_kmh, reference_right_kmh, time_step_s);
+
+    // State for VCU_states / Live Expressions: off and why, or which wheel is cut
+    bool cut_left = traction_control.rear_left.torque_factor < 1.0f;
+    bool cut_right = traction_control.rear_right.torque_factor < 1.0f;
+    if (!TRACTION_CONTROL_ENABLE) {
+        traction_control.state = TRACTION_CONTROL_STATE_DISABLED;
+    } else if (!s->front_wheel_speed_valid) {
+        traction_control.state = TRACTION_CONTROL_STATE_NO_FRONT_WHEEL_SPEED;
+    } else if (drive_command_1000 == 0) {
+        traction_control.state = TRACTION_CONTROL_STATE_NO_DRIVE;
+    } else if (reference_left_kmh < TRACTION_CONTROL_MINIMUM_SPEED_KMH &&
+               reference_right_kmh < TRACTION_CONTROL_MINIMUM_SPEED_KMH) {
+        traction_control.state = TRACTION_CONTROL_STATE_BELOW_MIN_SPEED;
+    } else if (cut_left && cut_right) {
+        traction_control.state = TRACTION_CONTROL_STATE_CUT_BOTH;
+    } else if (cut_left) {
+        traction_control.state = TRACTION_CONTROL_STATE_CUT_REAR_LEFT;
+    } else if (cut_right) {
+        traction_control.state = TRACTION_CONTROL_STATE_CUT_REAR_RIGHT;
+    } else {
+        traction_control.state = TRACTION_CONTROL_STATE_GRIP;
+    }
 
     /* Outputs: torque vectoring split (capped at 1000), then the traction control cut */
     *drive_command_left_1000 = (uint16_t)(fminf(drive_command_1000 * (1.0f - torque_vectoring.shift), 1000.0f) *
