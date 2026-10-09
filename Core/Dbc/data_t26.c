@@ -29,9 +29,9 @@
  * SOFTWARE.
  */
 
+#include <data_t26.h>
 #include <string.h>
 
-#include "data_t26.h"
 
 static inline uint8_t pack_left_shift_u8(
     uint8_t value,

@@ -29,9 +29,9 @@
  * SOFTWARE.
  */
 
+#include <fsic.h>
 #include <string.h>
 
-#include "fsic.h"
 
 static inline uint8_t pack_left_shift_u8(
     uint8_t value,

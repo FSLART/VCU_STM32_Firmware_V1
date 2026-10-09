@@ -1,13 +1,13 @@
 #ifndef CAN_UTILS_H
 #define CAN_UTILS_H
 
+#include <fsic.h>
+#include <powertrain_t26.h>
 #include <stdbool.h>
 
 #include "APPS.h"
 #include "can_queue.h"
-#include "fsic.h"
 #include "main.h"
-#include "powertrain_t26.h"
 #include "stm32f7xx_hal.h"
 
 /* External CAN handle declarations */

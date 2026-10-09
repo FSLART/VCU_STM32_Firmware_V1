@@ -1,14 +1,14 @@
+#include <autonomous_t26.h>
+#include <data_t26.h>
+#include <fsic.h>
+#include <powertrain_t26.h>
 #include "CAN_utils.h"
 
 #include <string.h>  // Add this for memset function
 
 #include "can_queue.h"
 
-#include "autonomous_t26.h"
 #include "data_dbc.h"
-#include "data_t26.h"
-#include "fsic.h"
-#include "powertrain_t26.h"
 #include "throttle_control.h"                    // VCU_states debug: throttle
 #include "traction_control_torque_vectoring.h"  // VCU_states debug: traction control, torque vectoring
 
