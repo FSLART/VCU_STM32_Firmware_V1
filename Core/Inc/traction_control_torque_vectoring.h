@@ -83,7 +83,7 @@
 /* ========================== TRACTION CONTROL ========================= */
 // Simulation (loadParams.m section 10): tyre peak at slip 0.097, 97 % of the peak force at 0.15.
 
-#define TRACTION_CONTROL_SLIP_TARGET             0.15f  // Slip allowed before cutting [-]
+#define TRACTION_CONTROL_SLIP_TARGET             0.08f  // Slip allowed before cutting [-]
 #define TRACTION_CONTROL_SPEED_MARGIN_KMH        4.0f   // + this speed [km/h] (sensor noise, radius error)
 #define TRACTION_CONTROL_MINIMUM_SPEED_KMH       2.0f   // Off below this front wheel speed [km/h]
 #define TRACTION_CONTROL_PROPORTIONAL_GAIN       0.08f  // PI controller, proportional: torque cut per km/h [-/(km/h)]
@@ -94,7 +94,7 @@
 
 #define TORQUE_VECTORING_GAIN_PER_G         0.10f  // Torque shift per g of lateral acceleration [-/g]
 #define TORQUE_VECTORING_MAXIMUM_SHIFT      0.15f  // Maximum shift: +-15 % of the drive command
-#define TORQUE_VECTORING_MINIMUM_SPEED_KMH  15.0f  // Off below this vehicle speed [km/h]
+#define TORQUE_VECTORING_MINIMUM_SPEED_KMH  5.0f  // Off below this vehicle speed [km/h]
 #define TORQUE_VECTORING_SHIFT_RATE_PER_S   1.0f   // Shift changes at most this per second (0 -> 0.15 in 0.15 s)
 
 /* =============================== TYPES =============================== */

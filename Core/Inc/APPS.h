@@ -17,8 +17,8 @@
 //
 // APPS_MIN_BITS / APPS_MAX_BITS: button "Calibrar APPS" in tools/throttle_map_editor.py
 // (VCU connected) measures the pedal and writes them here. Then rebuild and flash.
-#define APPS_MIN_BITS   1307U  // 0% throttle point
-#define APPS_MAX_BITS   1436U  // 100% throttle point
+#define APPS_MIN_BITS   1240U  // 0% throttle point
+#define APPS_MAX_BITS   1383U  // 100% throttle point
 #define APPS_TOLERANCE    20U  // Max APPS1 vs APPS2 disagreement (10% rule with the values above: <= 13)
 
 // Hysteresis on APPS1 (5..10 bits; 1 bit ~= 0.7% of pedal travel). The throttle output
