@@ -67,8 +67,8 @@
 
 /* ============================== SWITCHES ============================= */
 
-#define TRACTION_CONTROL_ENABLE  0  // 1 = traction control on
-#define TORQUE_VECTORING_ENABLE  0  // 1 = torque vectoring on
+#define TRACTION_CONTROL_ENABLE  1  // 1 = traction control on
+#define TORQUE_VECTORING_ENABLE  1  // 1 = torque vectoring on
 
 /* ================================ CAR ================================ */
 
@@ -77,7 +77,7 @@
 #define VEHICLE_WHEELBASE_M     1.55f
 #define STEERING_RATIO          5.0f                         // Steering angle / road wheel angle  PLACEHOLDER (step 2)
 #define STEERING_SIGN           1.0f                         // -1.0f if turning left gives a negative steering angle
-#define STEERING_OFFSET_DEG     0.0f                         // Steering angle with the wheels straight
+#define STEERING_OFFSET_DEG     5.0f                         // Steering angle with the wheels straight
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
 
