@@ -11,7 +11,7 @@
  * 1. VEHICLE SENSORS ("vehicle_sensors") - no IMU on the car:
  *      front wheel speed  = wheel rpm * 2 pi R * 60 / 1000                       [km/h], per front wheel
  *      rear wheel speed   = ERPM / pole pairs / gear ratio * 2 pi R * 60 / 1000   [km/h], per rear motor
- *      road wheel angle   = (steering angle - offset) * sign / steering ratio     [deg], > 0 = left
+ *      road wheel angle   = linear * x + cubic * x^3, x = (steering angle - offset) * sign  [rad], > 0 = left
  *      vehicle speed      = mean front wheel speed * cos(road wheel angle)
  *      lateral accel.     = vehicle speed^2 * tan(road wheel angle) / wheelbase  (kinematic, steady state)
  *
@@ -47,14 +47,15 @@
  *   1. Car on stands, spin the LEFT rear wheel by hand: vehicle_sensors.rear_left_speed_kmh moves,
  *      otherwise swap INVERTER_ID_REAR_LEFT.
  *   2. Wheels straight: vehicle_sensors.road_wheel_angle_deg = 0 (STEERING_OFFSET_DEG). Turn LEFT:
- *      > 0 (STEERING_SIGN). Full lock: steering angle / measured road wheel angle = STEERING_RATIO.
+ *      > 0 (STEERING_SIGN). Road wheel angle vs steering angle: STEERING_LINEAR_GAIN / STEERING_CUBIC_GAIN.
  *   3. Straight, constant speed: front wheel speeds = rear wheel speeds (FRONT_WHEEL_RADIUS_M).
  *   4. TRACTION_CONTROL_ENABLE 1 alone first. Then TORQUE_VECTORING_ENABLE 1: skidpad both ways.
  *
- * CAN inputs (raw decode, T26_DBC):
- *   0x720 AQT2  FRONT_LEFT_WHEEL_RPM bytes 0-1, FRONT_RIGHT_WHEEL_RPM bytes 2-3, uint16 LE, 1 rpm (data bus)
- *   0x740 AQT4  ST_ANGLE bytes 0-1, int16 LE, 0.1 deg                    (autonomous AND powertrain bus,
- *                                                                         newest of either: redundancy)
+ * CAN inputs (raw decode, IDs from the generated T26_DBC code):
+ *   AQT2  FRONT_LEFT_WHEEL_RPM bytes 0-1, FRONT_RIGHT_WHEEL_RPM bytes 2-3, uint16 LE, 1 rpm
+ *         data bus, DATA_T26_AQT2_FRAME_ID
+ *   AQT4  ST_ANGLE bytes 0-1, int16 LE, 0.1 deg - autonomous bus AUTONOMOUS_T26_AQT4_FRAME_ID AND
+ *         powertrain bus POWERTRAIN_T26_AQT4_FRAME_ID, newest of either (redundancy)
  */
 
 #ifndef TRACTION_CONTROL_TORQUE_VECTORING_H
@@ -75,7 +76,14 @@
 #define INVERTER_ID_REAR_LEFT   1                            // Inverter on the rear LEFT wheel (check, step 1)
 #define INVERTER_ID_REAR_RIGHT  (3 - INVERTER_ID_REAR_LEFT)
 #define VEHICLE_WHEELBASE_M     1.55f
-#define STEERING_RATIO          5.0f                         // Steering angle / road wheel angle  PLACEHOLDER (step 2)
+// Road wheel angle from the steering wheel angle (sensor on the column, 1:1 with the wheel).
+// Measured map for ONE front wheel, wheel angle a [rad] -> steering wheel [deg]:
+//   steering = -49.3021 a^3 + 90.5065 a^2 + 312.5504 a
+// The vehicle model uses the MEAN of both front wheels: inverted, averaged left/right (the a^2 term
+// is Ackermann, the inner wheel steers more, and cancels) and fitted as wheel = linear x + cubic x^3,
+// x = steering wheel [rad], max error 0.3 deg up to +-150 deg. Mean ratio 5.45 at the centre, 5.14 at 120 deg.
+#define STEERING_LINEAR_GAIN    0.180952f                    // x term [rad/rad]
+#define STEERING_CUBIC_GAIN     0.003328f                    // x^3 term [rad/rad^3]
 #define STEERING_SIGN           1.0f                         // -1.0f if turning left gives a negative steering angle
 #define STEERING_OFFSET_DEG     5.0f                         // Steering angle with the wheels straight
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)

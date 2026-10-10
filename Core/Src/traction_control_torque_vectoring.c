@@ -15,13 +15,8 @@
 #include "CAN_utils.h"         // MOTOR_POLE_PAIRS
 #include "throttle_control.h"  // THROTTLE_GEAR_RATIO, THROTTLE_WHEEL_RADIUS_M
 
-#define FRONT_WHEEL_SPEED_FRAME_ID 0x720u  // AQT2
-#define STEERING_ANGLE_FRAME_ID    0x740u  // AQT4
-
-// Raw decode below: fail the build if the DBCs move these frames
-_Static_assert(DATA_T26_AQT2_FRAME_ID == FRONT_WHEEL_SPEED_FRAME_ID, "data DBC: AQT2 moved");
-_Static_assert(AUTONOMOUS_T26_AQT4_FRAME_ID == STEERING_ANGLE_FRAME_ID, "autonomous DBC: AQT4 moved");
-_Static_assert(POWERTRAIN_T26_AQT4_FRAME_ID == STEERING_ANGLE_FRAME_ID, "powertrain DBC: AQT4 moved");
+// Frame IDs come from the generated DBC code: they follow the DBCs when CAN priorities change.
+// AQT4 has a different ID on each bus (autonomous / powertrain).
 
 #define DEGREES_TO_RADIANS 0.017453293f
 #define GRAVITY_MS2        9.81f
@@ -56,11 +51,13 @@ void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_erpm, uin
     s->rear_right_speed_kmh = speed_kmh_from_wheel_rpm(
         fabsf((float)rear_right_erpm) / MOTOR_POLE_PAIRS / THROTTLE_GEAR_RATIO, THROTTLE_WHEEL_RADIUS_M);
 
-    s->road_wheel_angle_deg =
-        s->steering_angle_valid
-            ? (s->steering_angle_raw_deg - STEERING_OFFSET_DEG) * STEERING_SIGN / STEERING_RATIO
-            : 0.0f;
-    float road_wheel_angle_rad = s->road_wheel_angle_deg * DEGREES_TO_RADIANS;
+    // Mean road wheel angle of both front wheels from the steering angle (fit in the .h, rad -> rad)
+    float steering_rad = s->steering_angle_valid
+                             ? (s->steering_angle_raw_deg - STEERING_OFFSET_DEG) * STEERING_SIGN * DEGREES_TO_RADIANS
+                             : 0.0f;
+    float road_wheel_angle_rad =
+        (STEERING_LINEAR_GAIN + STEERING_CUBIC_GAIN * steering_rad * steering_rad) * steering_rad;
+    s->road_wheel_angle_deg = road_wheel_angle_rad / DEGREES_TO_RADIANS;
     s->vehicle_speed_kmh = 0.5f * (s->front_left_speed_kmh + s->front_right_speed_kmh) * cosf(road_wheel_angle_rad);
 
     float vehicle_speed_ms = s->vehicle_speed_kmh / 3.6f;
@@ -160,13 +157,15 @@ void traction_control_torque_vectoring_reset(void) {
 void vehicle_sensors_can_receive(const can_msg_t *message) {
     if (message->is_extended) return;
     // Front wheel speed only from the data bus; steering from the autonomous OR the powertrain bus
-    // (redundancy: the newest frame from either is used, valid while either keeps arriving)
-    if (message->id == FRONT_WHEEL_SPEED_FRAME_ID && message->bus == CAN_BUS_1 && message->dlc >= 4) {
+    // (redundancy: the newest frame from either is used, valid while either keeps arriving).
+    // Raw decode: AQT2 FRONT_LEFT/RIGHT_WHEEL_RPM bytes 0-1 / 2-3, AQT4 ST_ANGLE bytes 0-1 (same on both buses)
+    bool steering_frame = (message->bus == CAN_BUS_3 && message->id == AUTONOMOUS_T26_AQT4_FRAME_ID) ||
+                          (message->bus == CAN_BUS_2 && message->id == POWERTRAIN_T26_AQT4_FRAME_ID);
+    if (message->bus == CAN_BUS_1 && message->id == DATA_T26_AQT2_FRAME_ID && message->dlc >= 4) {
         vehicle_sensors.front_left_wheel_rpm = (uint16_t)(message->data[0] | (message->data[1] << 8));
         vehicle_sensors.front_right_wheel_rpm = (uint16_t)(message->data[2] | (message->data[3] << 8));
         vehicle_sensors.front_wheel_frame_time_ms = message->timestamp;
-    } else if (message->id == STEERING_ANGLE_FRAME_ID && (message->bus == CAN_BUS_3 || message->bus == CAN_BUS_2) &&
-               message->dlc >= 2) {
+    } else if (steering_frame && message->dlc >= 2) {
         vehicle_sensors.steering_angle_raw_deg = (int16_t)(message->data[0] | (message->data[1] << 8)) * 0.1f;
         vehicle_sensors.steering_frame_time_ms = message->timestamp;
     }
