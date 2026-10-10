@@ -1242,6 +1242,7 @@ void process_can_rx_queues(void) {
 	/* CAN2 — Powertrain */
 	while (can_queue_pop(&can2_rx_queue, &msg)) {
 		decode_powertrain_bus(&msg, (BMSvars_t*) &bms, (FSIC_t*) &myFSIC1, (FSIC_t*) &myFSIC2, (IVT_t*) &ivt);
+		vehicle_sensors_can_receive(&msg);  // steering angle (redundant copy of the autonomous bus AQT4)
 	}
 
 	/* CAN3 — Autonomous */

@@ -53,7 +53,8 @@
  *
  * CAN inputs (raw decode, T26_DBC):
  *   0x720 AQT2  FRONT_LEFT_WHEEL_RPM bytes 0-1, FRONT_RIGHT_WHEEL_RPM bytes 2-3, uint16 LE, 1 rpm (data bus)
- *   0x740 AQT4  ST_ANGLE bytes 0-1, int16 LE, 0.1 deg                                           (autonomous bus)
+ *   0x740 AQT4  ST_ANGLE bytes 0-1, int16 LE, 0.1 deg                    (autonomous AND powertrain bus,
+ *                                                                         newest of either: redundancy)
  */
 
 #ifndef TRACTION_CONTROL_TORQUE_VECTORING_H
@@ -171,7 +172,7 @@ extern traction_control_t traction_control;
 /** @brief Clear both controllers (keeps the sensor values). Called by throttle_control_reset(). */
 void traction_control_torque_vectoring_reset(void);
 
-/** @brief Read the front wheel speed and steering frames. Call for every received frame (CAN1, CAN3). */
+/** @brief Read the front wheel speed (CAN1) and steering (CAN2, CAN3) frames. Call for every received frame. */
 void vehicle_sensors_can_receive(const can_msg_t *message);
 
 /**

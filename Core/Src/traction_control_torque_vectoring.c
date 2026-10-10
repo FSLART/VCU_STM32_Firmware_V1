@@ -8,11 +8,20 @@
 
 #include <math.h>
 
+#include <autonomous_t26.h>
+#include <data_t26.h>
+#include <powertrain_t26.h>
+
 #include "CAN_utils.h"         // MOTOR_POLE_PAIRS
 #include "throttle_control.h"  // THROTTLE_GEAR_RATIO, THROTTLE_WHEEL_RADIUS_M
 
 #define FRONT_WHEEL_SPEED_FRAME_ID 0x720u  // AQT2
 #define STEERING_ANGLE_FRAME_ID    0x740u  // AQT4
+
+// Raw decode below: fail the build if the DBCs move these frames
+_Static_assert(DATA_T26_AQT2_FRAME_ID == FRONT_WHEEL_SPEED_FRAME_ID, "data DBC: AQT2 moved");
+_Static_assert(AUTONOMOUS_T26_AQT4_FRAME_ID == STEERING_ANGLE_FRAME_ID, "autonomous DBC: AQT4 moved");
+_Static_assert(POWERTRAIN_T26_AQT4_FRAME_ID == STEERING_ANGLE_FRAME_ID, "powertrain DBC: AQT4 moved");
 
 #define DEGREES_TO_RADIANS 0.017453293f
 #define GRAVITY_MS2        9.81f
@@ -150,11 +159,14 @@ void traction_control_torque_vectoring_reset(void) {
 
 void vehicle_sensors_can_receive(const can_msg_t *message) {
     if (message->is_extended) return;
-    if (message->id == FRONT_WHEEL_SPEED_FRAME_ID && message->dlc >= 4) {
+    // Front wheel speed only from the data bus; steering from the autonomous OR the powertrain bus
+    // (redundancy: the newest frame from either is used, valid while either keeps arriving)
+    if (message->id == FRONT_WHEEL_SPEED_FRAME_ID && message->bus == CAN_BUS_1 && message->dlc >= 4) {
         vehicle_sensors.front_left_wheel_rpm = (uint16_t)(message->data[0] | (message->data[1] << 8));
         vehicle_sensors.front_right_wheel_rpm = (uint16_t)(message->data[2] | (message->data[3] << 8));
         vehicle_sensors.front_wheel_frame_time_ms = message->timestamp;
-    } else if (message->id == STEERING_ANGLE_FRAME_ID && message->dlc >= 2) {
+    } else if (message->id == STEERING_ANGLE_FRAME_ID && (message->bus == CAN_BUS_3 || message->bus == CAN_BUS_2) &&
+               message->dlc >= 2) {
         vehicle_sensors.steering_angle_raw_deg = (int16_t)(message->data[0] | (message->data[1] << 8)) * 0.1f;
         vehicle_sensors.steering_frame_time_ms = message->timestamp;
     }

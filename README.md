@@ -26,7 +26,7 @@ The firmware runs a **bare-metal super-loop** with no RTOS. A hardware timer tic
 
 CAN RX is interrupt-driven — ISRs push received frames into **per-bus ring-buffer queues** (`can_queue_t`, 32 entries each). The main loop pops and decodes them outside ISR context, avoiding priority inversion and keeping ISRs fast. TX is similarly queued with one queue per bus to prevent head-of-line blocking across the three independent bxCAN peripherals.
 
-CAN message codecs (encode/decode) in `Core/Dbc/` are **auto-generated from DBC files** using [cantools](https://cantools.readthedocs.io/), ensuring signal definitions stay in sync with the rest of the car's toolchain.
+CAN message codecs (encode/decode) in `Core/DBC/` are **auto-generated from DBC files** using [cantools](https://cantools.readthedocs.io/), ensuring signal definitions stay in sync with the rest of the car's toolchain.
 
 ## State Machine
 
@@ -159,7 +159,7 @@ APPS raw ADC values are mapped to 0–100% (or 0–1000 for high-resolution) usi
 cantools generate --database-file <bus>.dbc <output>.c <output>.h
 ```
 
-DBC source files are in `Core/Dbc/`. Generated headers define pack/unpack functions for each CAN message.
+DBC source files are in `Core/DBC/`. Generated headers define pack/unpack functions for each CAN message.
 or go copy from https://github.com/FSLART/T26_DBC.git
 
 ## License
