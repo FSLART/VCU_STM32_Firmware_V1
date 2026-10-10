@@ -84,7 +84,7 @@
 // x = steering wheel [rad], max error 0.3 deg up to +-150 deg. Mean ratio 5.45 at the centre, 5.14 at 120 deg.
 #define STEERING_LINEAR_GAIN    0.180952f                    // x term [rad/rad]
 #define STEERING_CUBIC_GAIN     0.003328f                    // x^3 term [rad/rad^3]
-#define STEERING_SIGN           1.0f                         // -1.0f if turning left gives a negative steering angle
+#define STEERING_SIGN           -1.0f                        // Sensor reads > 0 turning RIGHT -> -1, so road wheel angle > 0 = left
 #define STEERING_OFFSET_DEG     5.0f                         // Steering angle with the wheels straight
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
