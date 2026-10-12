@@ -92,12 +92,14 @@
 /* ========================== TRACTION CONTROL ========================= */
 // Simulation (loadParams.m section 10): tyre peak at slip 0.097, 97 % of the peak force at 0.15.
 
-#define TRACTION_CONTROL_SLIP_TARGET             0.08f  // Slip allowed before cutting [-]
-#define TRACTION_CONTROL_SPEED_MARGIN_KMH        4.0f   // + this speed [km/h] (sensor noise, radius error)
-#define TRACTION_CONTROL_MINIMUM_SPEED_KMH       2.0f   // Off below this front wheel speed [km/h]
-#define TRACTION_CONTROL_PROPORTIONAL_GAIN       0.08f  // PI controller, proportional: torque cut per km/h [-/(km/h)]
+// Cut starts at slip = SLIP_TARGET + SPEED_MARGIN / speed: the margin sets the low speed behaviour
+// (40 % at 5 km/h, 25 % at 10, 17.5 % at 20), the slip target the high speed one (11.9 % at 80 km/h).
+#define TRACTION_CONTROL_SLIP_TARGET             0.10f  // Slip allowed before cutting [-]
+#define TRACTION_CONTROL_SPEED_MARGIN_KMH        1.5f   // + this speed [km/h] (sensor noise, radius error)
+#define TRACTION_CONTROL_MINIMUM_SPEED_KMH       1.0f   // Off below this front wheel speed [km/h]
+#define TRACTION_CONTROL_PROPORTIONAL_GAIN       0.12f  // PI controller, proportional: torque cut per km/h [-/(km/h)]
 #define TRACTION_CONTROL_INTEGRAL_GAIN           0.6f   // PI controller, integral: torque cut per km/h per second
-#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR   0.3f   // Never less than this x the request (light: at most -70 %)
+#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR   0.2f   // Never less than this x the request (at most -80 %)
 
 /* ========================== TORQUE VECTORING ========================= */
 
