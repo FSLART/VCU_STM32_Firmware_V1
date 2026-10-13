@@ -113,15 +113,15 @@
 // 7.8 m/s2 (p99.9), 8.8 max, at any speed up to 80 km/h (10-10 Maceira: 6.3 p99); above ~60 km/h
 // accel x speed reaches ~160 W/kg (DTI 2 x 32 kW, 76 % to the wheels, 290 kg: 168 W/kg).
 // A spinning rear wheel speeds up at 20-60 m/s2. ERPM comes every 33 ms; over 2 frames a gripping
-// wheel reads at most 11.3 m/s2 (driveline ripple), so limit + margin = 13 never cut one in that log.
+// wheel reads at most 11.3 m/s2 (driveline ripple), so limit + margin = 11.5 never cut one in that log.
 
 // Car limit: the reference speed rises at most this, and a wheel speeding up faster is spinning
-#define TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2   10.0f  // Most the car can accelerate, tyre grip [m/s2] (~1 g)
-#define TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG    200.0f  // Power at the wheels / mass: limit = this / speed [W/kg] (< 10 above 72 km/h)
+#define TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2    8.0f  // Most the car can accelerate, tyre grip [m/s2] (08-10 p99.9 7.8)
+#define TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG    200.0f  // Power at the wheels / mass: limit = this / speed [W/kg] (< 8 above 90 km/h)
 #define TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2   15.0f  // Most the car can brake: the reference falls at most this [m/s2]
 // Derivative: wheel acceleration = speed change since the newest ERPM frame at least this old
 #define TRACTION_CONTROL_DERIVATIVE_WINDOW_MS       55     // [ms] = 2 frames at 33 ms (1 frame: ripple up to 17 m/s2)
-#define TRACTION_CONTROL_ACCELERATION_MARGIN_MS2     3.0f  // Over the car limit by more than this = spinning up [m/s2]
+#define TRACTION_CONTROL_ACCELERATION_MARGIN_MS2     3.5f  // Over the car limit by more than this = spinning up [m/s2]
 #define TRACTION_CONTROL_ACCELERATION_GAIN           0.02f // Torque cut per m/s2 of acceleration excess [-/(m/s2)]
 // Speed terms: cut starts at slip = SLIP_TARGET + SPEED_MARGIN / reference speed over the reference
 // Gains: straight line model of the car (ERPM every 33 ms, tyre mu 0.8-1.3) - 10x less slip than
