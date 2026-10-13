@@ -36,6 +36,10 @@
  *      reference speed    = the wheel speed, but rising at most the car limit and falling at most
  *                           TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2 since the last frame: the speed
  *                           the wheel would have rolling with the car. = wheel speed while it grips.
+ *                           With no drive command (regen, coast) it also stops falling at
+ *                           TRACTION_CONTROL_OTHER_WHEEL_FLOOR x the other rear wheel: a wheel locked
+ *                           under regen cannot drag its reference below the car (the other wheel still
+ *                           rolls with it), so it is not taken for a spin when it catches up.
  *      acceleration excess = wheel acceleration - car limit - TRACTION_CONTROL_ACCELERATION_MARGIN_MS2
  *                           [m/s2], > 0 = spinning up. 0 for one window after the wheel was below its
  *                           reference (it is catching up with the car after a lock, not spinning).
@@ -109,16 +113,24 @@
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
 
 /* ========================== TRACTION CONTROL ========================= */
-// What the car can do, 08-10 ESTG log (31 min moving, both rears gripping, 150 ms average): at most
-// 7.8 m/s2 (p99.9), 8.8 max, at any speed up to 80 km/h (10-10 Maceira: 6.3 p99); above ~60 km/h
-// accel x speed reaches ~160 W/kg (DTI 2 x 32 kW, 76 % to the wheels, 290 kg: 168 W/kg).
+// What the car can do, in rear wheel speed units (what the controller sees):
+//   08-10 ESTG night (31 min moving, both rears gripping, 150 ms average): 7.8 m/s2 p99.9, 8.8 max.
+//   13-10 Milagres endurance (IMU, 300 ms average, x 1.13 IMU -> wheel speed scale): accelerating
+//   p99.9 8.1 / 10.1 / 10.6 m/s2 (warm-up / stint 1 / stint 2), braking 11-12 m/s2, ~160-190 W/kg
+//   above 60 km/h (DTI 2 x 32 kW, 76 % to the wheels, 290 kg: 168 W/kg).
 // A spinning rear wheel speeds up at 20-60 m/s2. ERPM comes every 33 ms; over 2 frames a gripping
-// wheel reads at most 11.3 m/s2 (driveline ripple), so limit + margin = 11.5 never cut one in that log.
+// wheel reads at most 11.3 m/s2 (driveline ripple, 08-10), under limit + margin = 13.5 below 72 km/h.
+// Open loop replay of this controller over the 13-10 bags, against the IMU (2 stints + warm-up, 243
+// spins): limit 10 / braking 13 / other wheel floor 0.8 instead of 8 / 15 / off cut a gripping wheel
+// 47 s instead of 110 s (cut onsets 205 instead of 337), for 60 % of the spins caught instead of 64 %.
+// Most of the cuts on gripping wheels came after a lock under regen (78-98 %): the floor is for those.
 
 // Car limit: the reference speed rises at most this, and a wheel speeding up faster is spinning
-#define TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2    8.0f  // Most the car can accelerate, tyre grip [m/s2] (08-10 p99.9 7.8)
-#define TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG    200.0f  // Power at the wheels / mass: limit = this / speed [W/kg] (< 8 above 90 km/h)
-#define TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2   15.0f  // Most the car can brake: the reference falls at most this [m/s2]
+#define TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2   10.0f  // Most the car can accelerate, tyre grip [m/s2] (13-10: ~10 sustained; 8 cut gripping wheels)
+#define TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG    200.0f  // Power at the wheels / mass: limit = this / speed [W/kg] (< 10 above 72 km/h)
+#define TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2   13.0f  // Most the car can brake: the reference falls at most this [m/s2] (13-10: 11-12)
+#define TRACTION_CONTROL_OTHER_WHEEL_FLOOR           0.80f // No drive command: reference never falls below this x the other rear wheel [-] (0 = off)
+                                                           // (inner / outer wheel in a corner: 0.8 at 5.4 m radius, FS hairpins down to ~0.72)
 // Derivative: wheel acceleration = speed change since the newest ERPM frame at least this old
 #define TRACTION_CONTROL_DERIVATIVE_WINDOW_MS       55     // [ms] = 2 frames at 33 ms (1 frame: ripple up to 17 m/s2)
 #define TRACTION_CONTROL_ACCELERATION_MARGIN_MS2     3.5f  // Over the car limit by more than this = spinning up [m/s2]

@@ -132,15 +132,19 @@ static float traction_control_car_limit_ms2(float speed_kmh) {
  *          time between frames: per 5 ms step the speed stands still and then jumps. The acceleration
  *          is the speed change since the newest frame at least TRACTION_CONTROL_DERIVATIVE_WINDOW_MS
  *          older (2 frames): over 1 frame, the driveline ripple of a gripping wheel reads up to 17 m/s2.
+ *          floor_kmh: the reference stops falling here (0 = no floor), never pushed up by it.
  */
-static void traction_control_wheel_new_frame(traction_control_wheel_t *wheel, float speed_kmh, uint32_t now_ms) {
+static void traction_control_wheel_new_frame(traction_control_wheel_t *wheel, float speed_kmh, float floor_kmh,
+                                             uint32_t now_ms) {
     float elapsed_s = (float)(now_ms - wheel->frame_time_ms[wheel->frame_index]) * 0.001f;
 
     // Reference: the wheel speed, but rising at most the car limit and falling at most the car's braking
+    // (and not below the floor)
     wheel->car_limit_ms2 = traction_control_car_limit_ms2(wheel->reference_speed_kmh);
+    float lowest_kmh = fmaxf(wheel->reference_speed_kmh - TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2 * 3.6f * elapsed_s,
+                             fminf(floor_kmh, wheel->reference_speed_kmh));
     wheel->reference_speed_kmh =
-        clamp(speed_kmh, wheel->reference_speed_kmh - TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2 * 3.6f * elapsed_s,
-              wheel->reference_speed_kmh + wheel->car_limit_ms2 * 3.6f * elapsed_s);
+        clamp(speed_kmh, lowest_kmh, wheel->reference_speed_kmh + wheel->car_limit_ms2 * 3.6f * elapsed_s);
     if (speed_kmh < wheel->reference_speed_kmh) {
         wheel->below_reference_ms = now_ms;  // Fell faster than the car can brake: locked, will catch up
     }
@@ -168,9 +172,11 @@ static void traction_control_wheel_new_frame(traction_control_wheel_t *wheel, fl
  * @param active           traction control on and driving
  * @param erpm             motor ERPM as last received (a change = a new frame)
  * @param wheel_speed_kmh  rear wheel speed from it
+ * @param floor_kmh        the reference does not fall below this (0 = no floor)
  */
 static void traction_control_wheel_update(traction_control_wheel_t *wheel, bool active, int32_t erpm,
-                                          float wheel_speed_kmh, uint32_t now_ms, float time_step_s) {
+                                          float wheel_speed_kmh, float floor_kmh, uint32_t now_ms,
+                                          float time_step_s) {
     // New ERPM frame = the value changed (while moving 0.2 % of the frames repeat the last value: then
     // the next one spans both, still right). First step after a reset: start from the wheel speed.
     if (!wheel->reference_valid) {
@@ -185,7 +191,7 @@ static void traction_control_wheel_update(traction_control_wheel_t *wheel, bool 
         wheel->reference_valid = true;
     } else if (erpm != wheel->frame_erpm) {
         wheel->frame_erpm = erpm;
-        traction_control_wheel_new_frame(wheel, wheel_speed_kmh, now_ms);
+        traction_control_wheel_new_frame(wheel, wheel_speed_kmh, floor_kmh, now_ms);
     } else if (now_ms - wheel->frame_time_ms[wheel->frame_index] > FRAME_TIMEOUT_MS) {
         wheel->acceleration_ms2 = 0.0f;  // Standing still, or the frames stopped
     }
@@ -258,11 +264,14 @@ void traction_control_torque_vectoring_update(uint16_t drive_command_1000, int32
     torque_vectoring_update(time_step_s);
 
     /* 3. Traction control: each rear wheel against what the car can do (its own rpm derivative) */
+    // With no drive command (regen, coast) each reference stops falling at a fraction of the other wheel:
+    // a wheel locked under regen does not drag its reference below the car
     bool traction_control_active = TRACTION_CONTROL_ENABLE && drive_command_1000 > 0;
+    float floor_factor = (drive_command_1000 == 0) ? TRACTION_CONTROL_OTHER_WHEEL_FLOOR : 0.0f;
     traction_control_wheel_update(&traction_control.rear_left, traction_control_active, rear_left_erpm,
-                                  s->rear_left_speed_kmh, now_ms, time_step_s);
+                                  s->rear_left_speed_kmh, floor_factor * s->rear_right_speed_kmh, now_ms, time_step_s);
     traction_control_wheel_update(&traction_control.rear_right, traction_control_active, rear_right_erpm,
-                                  s->rear_right_speed_kmh, now_ms, time_step_s);
+                                  s->rear_right_speed_kmh, floor_factor * s->rear_left_speed_kmh, now_ms, time_step_s);
 
     // State for VCU_states / Live Expressions: off and why, or which wheel is cut
     bool cut_left = traction_control.rear_left.torque_factor < 1.0f;

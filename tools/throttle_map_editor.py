@@ -187,6 +187,7 @@ TCTV_SETTINGS = [
         ("TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2", "float", 3, 20, "TC: aceleracao maxima do carro, aderencia (m/s2)"),
         ("TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG", "float", 50, 1000, "TC: potencia nas rodas / massa (W/kg)"),
         ("TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2", "float", 5, 30, "TC: travagem maxima do carro (m/s2)"),
+        ("TRACTION_CONTROL_OTHER_WHEEL_FLOOR", "float", 0, 1, "TC: sem tracao, a referencia nao desce abaixo disto x a outra roda (0 = desligado)"),
         ("TRACTION_CONTROL_DERIVATIVE_WINDOW_MS", "int", 5, 70, "TC: janela da derivada da rpm (ms)"),
         ("TRACTION_CONTROL_ACCELERATION_MARGIN_MS2", "float", 0, 30, "TC: margem acima da aceleracao do carro (m/s2)"),
         ("TRACTION_CONTROL_ACCELERATION_GAIN", "float", 0, 1, "TC: corte por m/s2 acima do limite"),
