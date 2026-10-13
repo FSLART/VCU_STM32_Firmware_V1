@@ -23,25 +23,41 @@
  *      Each capped at 1000 (full pedal: the inner wheel loses, the outer cannot gain).
  *      Off below TORQUE_VECTORING_MINIMUM_SPEED_KMH.
  *
- * 3. TRACTION CONTROL ("traction_control") - one PI CONTROLLER (proportional + integral) per rear
- *    wheel. Not a PID: no derivative term, the derivative of a wheel speed error is mostly sensor
- *    noise. The reference is the front wheel on the SAME side: same lateral position -> same
- *    longitudinal speed in a corner, so the inner/outer speed difference is already in it.
- *      allowed speed     = front wheel speed * cos(road wheel angle) * (1 + slip target) + speed margin
- *      error             = rear wheel speed - allowed speed                  [km/h], > 0 = wheel spinning
- *      proportional term = TRACTION_CONTROL_PROPORTIONAL_GAIN * max(error, 0)
- *      integral term     = integral term + TRACTION_CONTROL_INTEGRAL_GAIN * error * dt,
- *                          within [0, 1 - minimum torque factor]  (anti-windup)
- *      torque factor     = 1 - proportional term - integral term, within [minimum torque factor, 1]
- *      Only ever reduces torque. Off below TRACTION_CONTROL_MINIMUM_SPEED_KMH of front wheel speed
- *      (launch: the throttle map limits the torque).
+ * 3. TRACTION CONTROL ("traction_control") - per rear wheel, from the DERIVATIVE of its motor rpm:
+ *    a wheel that rolls with the car cannot speed up faster than the car can accelerate, so a wheel
+ *    that does is spinning. Needs only the motor ERPM: no front wheel speed (AQT2 reads 0 above
+ *    ~4 km/h, tests 08-10 and 10-10), no IMU.
+ *      wheel acceleration = (wheel speed - wheel speed of the newest ERPM frame at least
+ *                           TRACTION_CONTROL_DERIVATIVE_WINDOW_MS older) / that time        [m/s2]
+ *                           per ERPM frame (a new frame = the ERPM value changed)
+ *      car limit          = min(TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2,                  [m/s2]
+ *                               TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG / reference speed)
+ *                           what the car can do: tyre grip at low speed, power at high speed
+ *      reference speed    = the wheel speed, but rising at most the car limit and falling at most
+ *                           TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2 since the last frame: the speed
+ *                           the wheel would have rolling with the car. = wheel speed while it grips.
+ *      acceleration excess = wheel acceleration - car limit - TRACTION_CONTROL_ACCELERATION_MARGIN_MS2
+ *                           [m/s2], > 0 = spinning up. 0 for one window after the wheel was below its
+ *                           reference (it is catching up with the car after a lock, not spinning).
+ *      speed error        = wheel speed - (reference * (1 + slip target) + speed margin)  [km/h], > 0 = spun up
+ *      integral term      = + TRACTION_CONTROL_INTEGRAL_GAIN * speed error * dt while speed error > 0,
+ *                           - TRACTION_CONTROL_RECOVERY_PER_S * dt otherwise, within [0, 1 - minimum]
+ *      cut                = TRACTION_CONTROL_ACCELERATION_GAIN * max(acceleration excess, 0)
+ *                         + TRACTION_CONTROL_PROPORTIONAL_GAIN * max(speed error, 0) + integral term
+ *      torque factor      = 1 - cut, within [minimum torque factor, 1]
+ *    The acceleration term cuts as soon as the wheel starts to spin, before the slip builds up; the
+ *    proportional term until the wheel is back down with the car; the integral term remembers how
+ *    much this surface takes off the request and gives it back slowly. Each wheel has its OWN
+ *    reference (only its own past): in a corner the outer wheel runs faster than the inner one, and
+ *    a reference shared with the slower wheel cut the outer wheel in every corner (version E, 08-10).
+ *    Only ever reduces torque. Off below TRACTION_CONTROL_MINIMUM_SPEED_KMH of reference speed.
  *
- * FALLBACK: no front wheel speed frame for SENSOR_TIMEOUT_MS -> traction control and torque
- * vectoring off; no steering frame -> torque vectoring off, traction control with a 0 deg road wheel
- * angle. Off = both motors get the same command, the car as before.
+ * FALLBACK: no front wheel speed frame for SENSOR_TIMEOUT_MS -> torque vectoring off; no steering
+ * frame -> torque vectoring off. Traction control does not use either. Off = both motors get the
+ * same command, the car as before.
  *
  * Simulator twin: Powertrain V1 - Simulator/model/vcu/TractionControlTorqueVectoring.m
- * (values in loadParams.m section 10).
+ * (values in loadParams.m section 10) - still the OLD traction control (PI against the front wheels).
  *
  * BEFORE THE FIRST RUN (Live Expressions: vehicle_sensors, torque_vectoring, traction_control)
  *   1. Car on stands, spin the LEFT rear wheel by hand: vehicle_sensors.rear_left_speed_kmh moves,
@@ -49,7 +65,10 @@
  *   2. Wheels straight: vehicle_sensors.road_wheel_angle_deg = 0 (STEERING_OFFSET_DEG). Turn LEFT:
  *      > 0 (STEERING_SIGN). Road wheel angle vs steering angle: STEERING_LINEAR_GAIN / STEERING_CUBIC_GAIN.
  *   3. Straight, constant speed: front wheel speeds = rear wheel speeds (FRONT_WHEEL_RADIUS_M).
- *   4. TRACTION_CONTROL_ENABLE 1 alone first. Then TORQUE_VECTORING_ENABLE 1: skidpad both ways.
+ *   4. Traction control, car on stands (wheels free = spinning): press the pedal. The rear wheels
+ *      must speed up in steps, on average at about the car limit (~TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2
+ *      * 3.6 km/h per second), not at once, with traction_control.state CUT_BOTH and torque_factor < 1.
+ *   5. TRACTION_CONTROL_ENABLE 1 alone first. Then TORQUE_VECTORING_ENABLE 1: skidpad both ways.
  *
  * CAN inputs (raw decode, IDs from the generated T26_DBC code):
  *   AQT2  FRONT_LEFT_WHEEL_RPM bytes 0-1, FRONT_RIGHT_WHEEL_RPM bytes 2-3, uint16 LE, 1 rpm
@@ -90,16 +109,33 @@
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
 
 /* ========================== TRACTION CONTROL ========================= */
-// Simulation (loadParams.m section 10): tyre peak at slip 0.097, 97 % of the peak force at 0.15.
+// What the car can do, 08-10 ESTG log (31 min moving, both rears gripping, 150 ms average): at most
+// 7.8 m/s2 (p99.9), 8.8 max, at any speed up to 80 km/h (10-10 Maceira: 6.3 p99); above ~60 km/h
+// accel x speed reaches ~160 W/kg (DTI 2 x 32 kW, 76 % to the wheels, 290 kg: 168 W/kg).
+// A spinning rear wheel speeds up at 20-60 m/s2. ERPM comes every 33 ms; over 2 frames a gripping
+// wheel reads at most 11.3 m/s2 (driveline ripple), so limit + margin = 13 never cut one in that log.
 
-// Cut starts at slip = SLIP_TARGET + SPEED_MARGIN / speed: the margin sets the low speed behaviour
-// (40 % at 5 km/h, 25 % at 10, 17.5 % at 20), the slip target the high speed one (11.9 % at 80 km/h).
-#define TRACTION_CONTROL_SLIP_TARGET             0.10f  // Slip allowed before cutting [-]
-#define TRACTION_CONTROL_SPEED_MARGIN_KMH        1.5f   // + this speed [km/h] (sensor noise, radius error)
-#define TRACTION_CONTROL_MINIMUM_SPEED_KMH       1.0f   // Off below this front wheel speed [km/h]
-#define TRACTION_CONTROL_PROPORTIONAL_GAIN       0.12f  // PI controller, proportional: torque cut per km/h [-/(km/h)]
-#define TRACTION_CONTROL_INTEGRAL_GAIN           0.6f   // PI controller, integral: torque cut per km/h per second
-#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR   0.2f   // Never less than this x the request (at most -80 %)
+// Car limit: the reference speed rises at most this, and a wheel speeding up faster is spinning
+#define TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2   10.0f  // Most the car can accelerate, tyre grip [m/s2] (~1 g)
+#define TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG    200.0f  // Power at the wheels / mass: limit = this / speed [W/kg] (< 10 above 72 km/h)
+#define TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2   15.0f  // Most the car can brake: the reference falls at most this [m/s2]
+// Derivative: wheel acceleration = speed change since the newest ERPM frame at least this old
+#define TRACTION_CONTROL_DERIVATIVE_WINDOW_MS       55     // [ms] = 2 frames at 33 ms (1 frame: ripple up to 17 m/s2)
+#define TRACTION_CONTROL_ACCELERATION_MARGIN_MS2     3.0f  // Over the car limit by more than this = spinning up [m/s2]
+#define TRACTION_CONTROL_ACCELERATION_GAIN           0.02f // Torque cut per m/s2 of acceleration excess [-/(m/s2)]
+// Speed terms: cut starts at slip = SLIP_TARGET + SPEED_MARGIN / reference speed over the reference
+// Gains: straight line model of the car (ERPM every 33 ms, tyre mu 0.8-1.3) - 10x less slip than
+// without TC, ~0.9 of the distance of a perfect pedal (no TC: 0.84). Integral 1.0 / fade 0.5 beat a
+// plain "cut and give back at a rate" on all of: distance, mean slip, worst case. Tune on track.
+#define TRACTION_CONTROL_SLIP_TARGET                 0.10f // Slip allowed before cutting [-] (tyre peak 0.097)
+#define TRACTION_CONTROL_SPEED_MARGIN_KMH            1.5f  // + this speed [km/h]
+#define TRACTION_CONTROL_PROPORTIONAL_GAIN           0.12f // Torque cut per km/h over the allowed speed [-/(km/h)]
+#define TRACTION_CONTROL_INTEGRAL_GAIN               1.0f  // Learned cut grows this per km/h over, per second
+#define TRACTION_CONTROL_RECOVERY_PER_S              0.5f  // Learned cut fades this per second once the wheel is back
+// Cut
+#define TRACTION_CONTROL_MINIMUM_SPEED_KMH           1.0f  // Off below this reference speed [km/h]
+#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR       0.2f  // Never less than this x the request (at most -80 %)
+#define TRACTION_CONTROL_FRAME_HISTORY_LENGTH       16     // ERPM frames kept for the derivative
 
 /* ========================== TORQUE VECTORING ========================= */
 
@@ -148,19 +184,31 @@ typedef struct {
     torque_vectoring_state_t state;
 } torque_vectoring_t;
 
-// 3. Traction control: PI controller of one rear wheel
+// 3. Traction control of one rear wheel
 typedef struct {
-    float speed_error_kmh;              // Wheel speed - allowed speed (> 0 = spinning)
-    float proportional_term;
-    float integral_term;
-    float torque_factor;                // 1 - proportional - integral, 1 = no cut
+    float acceleration_ms2;             // Wheel acceleration, derivative of the motor rpm
+    float car_limit_ms2;                // Most the car can accelerate at the reference speed
+    float reference_speed_kmh;          // Speed the wheel would have rolling with the car
+    float acceleration_excess_ms2;      // Acceleration - car limit - margin (> 0 = spinning up)
+    float speed_error_kmh;              // Wheel speed - allowed speed (> 0 = spun up)
+    float integral_term;                // Learned cut: grows while spun up, fades once back
+    float torque_factor;                // 1 - cut, 1 = no cut
+
+    // Internal
+    bool reference_valid;               // false after a reset: the next step starts from the wheel speed
+    uint32_t below_reference_ms;        // Last time the wheel was below its reference (after a lock)
+    int32_t frame_erpm;                 // ERPM of the newest frame (a different value = a new frame)
+    uint8_t frame_index;                // Newest ERPM frame in the history
+    uint8_t frame_count;
+    float frame_speed_kmh[TRACTION_CONTROL_FRAME_HISTORY_LENGTH];
+    uint32_t frame_time_ms[TRACTION_CONTROL_FRAME_HISTORY_LENGTH];  // HAL tick of the step that saw it
 } traction_control_wheel_t;
 
 typedef enum {  // Sent in VCU_states.tc_state (powertrain DBC) - keep its value table in sync
     TRACTION_CONTROL_STATE_DISABLED = 0,          // TRACTION_CONTROL_ENABLE 0
-    TRACTION_CONTROL_STATE_NO_FRONT_WHEEL_SPEED,  // Off: AQT2 missing
+    TRACTION_CONTROL_STATE_NO_FRONT_WHEEL_SPEED,  // Not used: traction control no longer needs the front wheels
     TRACTION_CONTROL_STATE_NO_DRIVE,              // No drive command (pedal released, regen, BSPD, ...)
-    TRACTION_CONTROL_STATE_BELOW_MIN_SPEED,       // Off: front wheels below TRACTION_CONTROL_MINIMUM_SPEED_KMH
+    TRACTION_CONTROL_STATE_BELOW_MIN_SPEED,       // Off: both references below TRACTION_CONTROL_MINIMUM_SPEED_KMH
     TRACTION_CONTROL_STATE_GRIP,                  // On, not cutting
     TRACTION_CONTROL_STATE_CUT_REAR_LEFT,         // Cutting the rear left motor
     TRACTION_CONTROL_STATE_CUT_REAR_RIGHT,        // Cutting the rear right motor

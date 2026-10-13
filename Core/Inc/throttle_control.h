@@ -17,7 +17,7 @@
  *                     the pedal is stabbed. Decreases are instant. (Low-speed traction
  *                     limiting is in the map itself: lower drive values at low speed.)
  *   7. Digital BSPD   LAST: when active, drive and regen are 0, whatever came before
- *   8. Traction       traction control (PI controller per rear wheel) + torque vectoring
+ *   8. Traction       traction control (motor rpm derivative per rear wheel) + torque vectoring
  *      control +      (feedforward), traction_control_torque_vectoring.h: drive_cmd_1000 -> one
  *      torque         drive command per motor, drive_command_left_1000 / drive_command_right_1000.
  *      vectoring      Only reduces or moves drive torque; with TRACTION_CONTROL_ENABLE and

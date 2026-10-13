@@ -5,7 +5,7 @@ Tabs:
   Mapa                    Core/Inc/throttle_map_data.h: relative-current map (accelerator x
                           vehicle speed). The whole file is rewritten on save.
   Conducao                Driving #defines (regen, ramps, PAU, speed calculation).
-  Tracao / Vetorizacao    Traction control (PI) and torque vectoring (traction_control_torque_vectoring.h).
+  Tracao / Vetorizacao    Traction control (rpm derivative) and torque vectoring (traction_control_torque_vectoring.h).
   Calibracao / Seguranca  APPS calibration, BSPD, R2D, inverter brake limits.
                           Locked until "Desbloquear" is ticked.
 
@@ -171,7 +171,7 @@ TC, PAU, APPS_H, APPS_C, BSPD, CANU, TCTV = (
 )
 
 Setting = namedtuple("Setting", "tab file name kind lo hi label")
-# Traction control (PI per rear wheel) and torque vectoring (feedforward), see the .h
+# Traction control (motor rpm derivative per rear wheel) and torque vectoring (feedforward), see the .h
 TCTV_SETTINGS = [
     Setting(TRACTION, TCTV, *row)
     for row in [
@@ -184,11 +184,18 @@ TCTV_SETTINGS = [
         ("STEERING_SIGN", "float", -1, 1, "Sinal do volante (-1 se virar a esquerda da angulo negativo)"),
         ("STEERING_OFFSET_DEG", "float", -45, 45, "Angulo do volante com as rodas direitas (graus)"),
         ("SENSOR_TIMEOUT_MS", "int", 10, 1000, "Frame de sensor mais velha que isto = sensor em falta (ms)"),
+        ("TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2", "float", 3, 20, "TC: aceleracao maxima do carro, aderencia (m/s2)"),
+        ("TRACTION_CONTROL_MAXIMUM_POWER_W_PER_KG", "float", 50, 1000, "TC: potencia nas rodas / massa (W/kg)"),
+        ("TRACTION_CONTROL_MAXIMUM_DECELERATION_MS2", "float", 5, 30, "TC: travagem maxima do carro (m/s2)"),
+        ("TRACTION_CONTROL_DERIVATIVE_WINDOW_MS", "int", 5, 70, "TC: janela da derivada da rpm (ms)"),
+        ("TRACTION_CONTROL_ACCELERATION_MARGIN_MS2", "float", 0, 30, "TC: margem acima da aceleracao do carro (m/s2)"),
+        ("TRACTION_CONTROL_ACCELERATION_GAIN", "float", 0, 1, "TC: corte por m/s2 acima do limite"),
         ("TRACTION_CONTROL_SLIP_TARGET", "float", 0, 1, "TC: patinagem permitida antes de cortar"),
         ("TRACTION_CONTROL_SPEED_MARGIN_KMH", "float", 0, 20, "TC: margem de velocidade (km/h)"),
-        ("TRACTION_CONTROL_MINIMUM_SPEED_KMH", "float", 0, 50, "TC: desligado abaixo de (km/h, roda da frente)"),
-        ("TRACTION_CONTROL_PROPORTIONAL_GAIN", "float", 0, 5, "TC: ganho P (corte por km/h)"),
-        ("TRACTION_CONTROL_INTEGRAL_GAIN", "float", 0, 20, "TC: ganho I (corte por km/h por segundo)"),
+        ("TRACTION_CONTROL_PROPORTIONAL_GAIN", "float", 0, 5, "TC: ganho P (corte por km/h acima da velocidade permitida)"),
+        ("TRACTION_CONTROL_INTEGRAL_GAIN", "float", 0, 20, "TC: ganho I (corte aprendido por km/h acima, por segundo)"),
+        ("TRACTION_CONTROL_RECOVERY_PER_S", "float", 0.05, 20, "TC: o corte aprendido desce isto por segundo com a roda a aderir"),
+        ("TRACTION_CONTROL_MINIMUM_SPEED_KMH", "float", 0, 50, "TC: desligado abaixo de (km/h, referencia)"),
         ("TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR", "float", 0, 1, "TC: nunca menos que isto x o pedido"),
         ("TORQUE_VECTORING_GAIN_PER_G", "float", 0, 1, "TV: desvio de binario por g lateral"),
         ("TORQUE_VECTORING_MAXIMUM_SHIFT", "float", 0, 1, "TV: desvio maximo (0.15 = +-15 %)"),
