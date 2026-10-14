@@ -5,6 +5,7 @@
 
 #include "throttle_control.h"
 
+#include <math.h>
 #include <string.h>
 
 #include "pau_control.h"
@@ -99,6 +100,10 @@ void throttle_control_update(const APPS_Result_t *apps, bool bspd_active, const 
     t->bspd_active = bspd_active;
     t->motor_rpm = slowest_motor_rpm(inv1->Actual_ERPM, inv2->Actual_ERPM);
     t->speed_kmh = speed_kmh_from_motor_rpm(t->motor_rpm);
+    // A spinning wheel must not move the map up (more speed -> more torque -> more spin): cap at the
+    // traction control references, the speed each wheel would have rolling with the car (step 8, 5 ms old)
+    t->speed_kmh = fminf(t->speed_kmh, fminf(traction_control.rear_left.reference_speed_kmh,
+                                             traction_control.rear_right.reference_speed_kmh));
     t->dc_voltage_v = (inv1->Actual_InputVoltage > inv2->Actual_InputVoltage) ? inv1->Actual_InputVoltage
                                                                               : inv2->Actual_InputVoltage;
 

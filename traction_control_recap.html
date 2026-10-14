@@ -1,0 +1,601 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>T26e Traction Control Rework</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@100..125,600..800&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: one reading column (~70ch) on a cool engineering-paper ground; charts and tables break out to a wider measure. */
+:root {
+  --bg: #f3f5f7;
+  --surface: #ffffff;
+  --ink: #111922;
+  --ink-2: #46515e;
+  --muted: #6f7b88;
+  --line: #d9e0e7;
+  --grid: #e9edf1;
+  --accent: #1c5cab;
+  --code-bg: #edf1f5;
+  --s-blue: #2a78d6;
+  --s-orange: #eb6834;
+  --good: #006300;
+  --f-display: "Archivo", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --measure: 70ch;
+  --wide: 980px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e1318; --surface: #161d24; --ink: #edf1f5; --ink-2: #b4bfca; --muted: #8995a1;
+    --line: #2a3540; --grid: #1f2830; --accent: #6da7ec; --code-bg: #1c252e;
+    --s-blue: #3987e5; --s-orange: #d95926; --good: #0ca30c; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e1318; --surface: #161d24; --ink: #edf1f5; --ink-2: #b4bfca; --muted: #8995a1;
+  --line: #2a3540; --grid: #1f2830; --accent: #6da7ec; --code-bg: #1c252e;
+  --s-blue: #3987e5; --s-orange: #d95926; --good: #0ca30c; color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font: 400 16px/1.6 var(--f-body);
+  padding-inline: 20px; padding-block: 0 64px;
+}
+main { max-width: var(--wide); margin: 0 auto; }
+.col { max-width: var(--measure); }
+
+header.top { padding-block: 56px 28px; border-bottom: 1px solid var(--line); }
+.eyebrow {
+  font: 500 12px/1.4 var(--f-mono); letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 14px;
+}
+h1, h2, h3 { font-family: var(--f-display); text-wrap: balance; margin: 0; color: var(--ink); }
+h1 { font-size: clamp(32px, 5.2vw, 52px); line-height: 1.05; font-weight: 800; font-stretch: 112%; letter-spacing: -0.01em; }
+h2 { font-size: 26px; line-height: 1.2; font-weight: 700; font-stretch: 108%; margin-bottom: 12px; }
+h3 { font-size: 17px; line-height: 1.3; font-weight: 700; font-stretch: 104%; margin: 26px 0 8px; }
+.lead { font-size: 18px; color: var(--ink-2); margin: 18px 0 0; }
+p { margin: 0 0 14px; }
+p, li { color: var(--ink-2); }
+strong { color: var(--ink); font-weight: 600; }
+a { color: var(--accent); }
+code, .mono { font-family: var(--f-mono); font-size: 0.88em; }
+code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; color: var(--ink); overflow-wrap: anywhere; }
+
+.figures {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0;
+  margin-top: 32px; border-top: 1px solid var(--line);
+}
+.figures div { padding: 16px 18px 4px 0; min-width: 0; }
+.figures div + div { padding-left: 18px; border-left: 1px solid var(--line); }
+.figures b { display: block; font: 700 30px/1.1 var(--f-display); font-stretch: 108%; color: var(--ink); }
+.figures span { display: block; font-size: 13px; line-height: 1.45; color: var(--ink-2); margin-top: 6px; }
+@media (max-width: 760px) {
+  .figures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .figures div:nth-child(3) { padding-left: 0; border-left: 0; }
+  .figures div:nth-child(n+3) { border-top: 1px solid var(--line); }
+}
+
+section { padding-block: 44px 8px; }
+section + section { border-top: 1px solid var(--line); }
+ul, ol { padding-left: 1.3em; margin: 0 0 14px; }
+li { margin-bottom: 6px; }
+li::marker { color: var(--muted); }
+
+.eq {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 16px 18px; margin: 18px 0 20px; overflow-x: auto;
+  font: 400 13.5px/1.75 var(--f-mono); color: var(--ink); white-space: pre;
+}
+.eq .c { color: var(--muted); }
+.eq .k { color: var(--accent); }
+
+.panel {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  padding: 18px 18px 12px; margin: 20px 0 24px; min-width: 0;
+}
+.panel h3 { margin: 0 0 4px; }
+.panel .sub { font-size: 13.5px; color: var(--muted); margin: 0 0 10px; }
+.chart { width: 100%; min-width: 0; }
+.chart svg { display: block; overflow: visible; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 4px 0 8px; font-size: 13px; color: var(--ink-2); }
+.legend span { display: inline-flex; align-items: center; gap: 7px; }
+.sw { display: inline-block; width: 18px; height: 0; border-top: 2px solid; }
+.sw.blue { border-color: var(--s-blue); }
+.sw.orange { border-color: var(--s-orange); }
+.sw.ink { border-color: var(--ink); }
+.sw.dash { border-top: 2px dashed var(--muted); }
+.sw.dot { border-top: 2px dotted var(--muted); }
+.dotk { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.dotk.fill { background: var(--s-blue); }
+.dotk.ring { border: 2px solid var(--s-blue); background: var(--surface); }
+.note { font-size: 13px; color: var(--muted); margin: 6px 0 0; }
+.col .note { margin-bottom: 14px; }
+
+.pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+@media (max-width: 760px) { .pair { grid-template-columns: minmax(0, 1fr); } }
+.pair h4 { margin: 0 0 2px; font: 600 14px/1.4 var(--f-body); color: var(--ink); }
+.pair .sub { margin-bottom: 4px; }
+
+.tbl { overflow-x: auto; margin: 16px 0 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+th { font: 600 11.5px/1.3 var(--f-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); background: var(--surface); }
+td { color: var(--ink-2); }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td .mono { color: var(--ink); }
+tr.pick td { color: var(--ink); background: color-mix(in srgb, var(--s-blue) 7%, transparent); }
+tr.pick td:first-child { font-weight: 600; }
+
+.bar { position: relative; height: 8px; border-radius: 0 4px 4px 0; min-width: 2px; }
+.bar.off { background: var(--s-orange); }
+.bar.on { background: var(--s-blue); }
+.barcell { min-width: 150px; width: 34%; }
+.barrow { display: grid; grid-template-columns: minmax(0, 1fr) 48px; align-items: center; gap: 8px; margin: 3px 0; }
+.barrow em { font-style: normal; font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+
+.files { list-style: none; padding: 0; }
+.files li { display: grid; grid-template-columns: minmax(0, 15rem) minmax(0, 1fr); gap: 4px 18px; padding: 10px 0; border-bottom: 1px solid var(--line); margin: 0; }
+.files li:last-child { border-bottom: 0; }
+.files code { background: none; padding: 0; color: var(--ink); }
+@media (max-width: 600px) { .files li { grid-template-columns: minmax(0, 1fr); } }
+
+.status { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--good); }
+
+#tip {
+  position: fixed; z-index: 10; pointer-events: none; max-width: 280px;
+  background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.14); padding: 8px 10px; font-size: 12.5px; line-height: 1.5;
+}
+#tip b { font-weight: 600; }
+#tip .k { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* SVG chart parts, all from tokens */
+.gr { stroke: var(--grid); stroke-width: 1; }
+.ax { stroke: var(--line); stroke-width: 1; }
+.tk { fill: var(--muted); font: 400 11px var(--f-body); font-variant-numeric: tabular-nums; paint-order: stroke; stroke: var(--surface); stroke-width: 3px; stroke-linejoin: round; }
+.lb { fill: var(--ink-2); font: 500 12.5px var(--f-body); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.lbk { fill: var(--ink); font: 600 12px var(--f-body); paint-order: stroke; stroke: var(--surface); stroke-width: 4px; stroke-linejoin: round; }
+.f-blue { fill: var(--s-blue); } .f-orange { fill: var(--s-orange); }
+.ring-blue { fill: var(--surface); stroke: var(--s-blue); stroke-width: 2; }
+.l-blue { stroke: var(--s-blue); stroke-width: 2; fill: none; }
+.l-orange { stroke: var(--s-orange); stroke-width: 2; fill: none; }
+.l-ink { stroke: var(--ink); stroke-width: 2; fill: none; }
+.l-car { stroke: var(--ink); stroke-width: 1.5; fill: none; }
+.l-dash { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 5 4; fill: none; }
+.l-dot { stroke: var(--muted); stroke-width: 1.5; stroke-dasharray: 1.5 3.5; stroke-linecap: round; fill: none; }
+.a-blue { fill: color-mix(in srgb, var(--s-blue) 16%, transparent); stroke: none; }
+.cross { stroke: var(--muted); stroke-width: 1; }
+.hit { fill: transparent; }
+.hit:hover + .hl, .hl.on { opacity: 1; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+<main>
+
+<header class="top">
+  <p class="eyebrow">VCU firmware · VCU_STM32_Firmware_V1 · 13 Oct 2026</p>
+  <h1>T26e Traction Control Rework</h1>
+  <p class="lead col">The traction control now works from the derivative of each rear motor's rpm, compared with what the car can actually do. A rear wheel that speeds up faster than the car can accelerate is spinning, and gets its torque cut. It no longer needs the front wheel speeds, which read zero on track. The values come from the 08-10 ESTG log and a model of the car. It compiles and links, and has not been on the car yet.</p>
+  <div class="figures" role="list">
+    <div role="listitem"><b>32.8 ms</b><span>between ERPM frames from the inverters: the derivative is built for that</span></div>
+    <div role="listitem"><b>0</b><span>cuts started on a gripping wheel, replayed over the whole 08-10 night</span></div>
+    <div role="listitem"><b>93 %</b><span>of the night's spins cut (203 of 219), at a median 2.9 km/h of slip</span></div>
+    <div role="listitem"><b>4–28 km/h</b><span>mean wheel slip in the model with TC, against 26–161 km/h without</span></div>
+  </div>
+</header>
+
+<section id="why">
+  <div class="col">
+    <h2>Why the old traction control never acted</h2>
+    <p>The old controller was a PI per rear wheel that compared it with the front wheel on the same side. The front wheel sensors (AQT2) read 0 above about 4 km/h, a hardware fault the 08-10 and 10-10 reports traced to the input stage. With the reference at zero, the controller was off almost all the time. At Maceira on 10-10 it cut torque for 1.4 s in the whole day, always near standstill.</p>
+    <p>An earlier attempt without the front wheels ("version E", 08-10) compared both rear wheels with the slower one, allowed to rise at 15 km/h per second (0.42 g). It cut the outer wheel in every corner and held the car under 29 km/h. The new design avoids both problems: each wheel is judged only against its own past, and the acceleration allowed is what the car really does.</p>
+  </div>
+</section>
+
+<section id="how">
+  <div class="col">
+    <h2>How it works</h2>
+    <p>Each control step (every 5 ms in ready-to-drive), for each rear wheel:</p>
+    <ol>
+      <li><strong>Detect a new ERPM frame.</strong> The inverters send ERPM only every 32.8 ms, so between frames the value stands still. A change in the ERPM value marks a new frame. While driving, only 0.2 % of frames repeat the previous value, and the next frame then spans both.</li>
+      <li><strong>Move the reference speed</strong>, once per frame: it follows the wheel, but rises no faster than the car limit and falls no faster than the car can brake, over the time since the last frame.</li>
+      <li><strong>Compute the wheel acceleration</strong>, once per frame: the speed change since the newest frame at least 55 ms older (two frames).</li>
+      <li><strong>Cut torque</strong> with three terms, and send the request times the torque factor to that motor.</li>
+    </ol>
+  </div>
+<div class="eq" role="figure" aria-label="Traction control equations"><span class="c">// traction_control_torque_vectoring.c, per rear wheel</span>
+car limit           = min(<span class="k">MAXIMUM_ACCELERATION_MS2</span>, <span class="k">MAXIMUM_POWER_W_PER_KG</span> / reference speed)   <span class="c">10 m/s², 200 W/kg</span>
+reference speed     = clamp(wheel speed, ref − 15 m/s² · Δt_frame, ref + car limit · Δt_frame)
+wheel acceleration  = Δ wheel speed / Δt   over ≥ <span class="k">DERIVATIVE_WINDOW_MS</span> (55 ms = 2 frames)
+
+acceleration excess = wheel acceleration − car limit − <span class="k">ACCELERATION_MARGIN_MS2</span>       <span class="c">> 0: spinning up</span>
+speed error         = wheel speed − (reference · (1 + <span class="k">SLIP_TARGET</span>) + <span class="k">SPEED_MARGIN_KMH</span>)   <span class="c">> 0: spun up</span>
+integral term       += <span class="k">INTEGRAL_GAIN</span> · speed error · dt     while speed error > 0
+                    −= <span class="k">RECOVERY_PER_S</span> · dt                  otherwise, within [0, 0.8]
+
+torque factor       = 1 − <span class="k">ACCELERATION_GAIN</span> · max(acceleration excess, 0)
+                        − <span class="k">PROPORTIONAL_GAIN</span> · max(speed error, 0) − integral term,  within [0.2, 1]</div>
+  <div class="col">
+    <p>The acceleration term reacts as the wheel starts to spin, before slip builds up. The proportional term holds the cut until the wheel is back with the car. The integral term remembers how much torque this surface takes and gives it back slowly. After a wheel lock under regen, the wheel catching back up with the car is not treated as spin for one window.</p>
+  </div>
+</section>
+
+<section id="logs">
+  <div class="col">
+    <h2>What the logs set</h2>
+    <p>The 08-10 ESTG night is the only log with the full-rate powertrain bus (Vector GL2400, 31 min moving, 2557 s in ready-to-drive). Car speed was rebuilt the way the team's reports do it: the mean of both rears where both roll with the car, interpolated through spins and locks.</p>
+    <p><strong>ERPM arrives every 32.8 ms</strong> (99.8 % of frames under 40 ms while moving, p99 33.6 ms). That is about 30 Hz, the same as the 28 Hz seen in the 10-10 ROS bags. A derivative over one 5 ms step would read zero, then 6–7 times the real value. Over one frame, the driveline ripple of a gripping wheel reads up to 17 m/s². Over two frames it stays under 11.3 m/s², clear of the 13 m/s² where the cut starts.</p>
+  </div>
+
+  <div class="panel">
+    <h3>Gripping wheels and spinning wheels sit far apart</h3>
+    <p class="sub">Acceleration in m/s², 08-10 log. Bars span 0 to the largest value seen (spin: the usual range).</p>
+    <div class="chart" id="strip" aria-label="Range chart of wheel acceleration"></div>
+    <p class="note">Hover a bar for the percentiles.</p>
+  </div>
+
+  <div class="panel">
+    <h3>What the car can do, by speed</h3>
+    <p class="sub">Car acceleration while both rears grip (150 ms average), per speed band, against the limit the TC uses.</p>
+    <div class="legend" aria-hidden="true">
+      <span><i class="dotk fill"></i>measured max</span>
+      <span><i class="dotk ring"></i>measured p99.9</span>
+      <span><i class="sw ink"></i>car limit in the TC</span>
+      <span><i class="sw dash"></i>cut threshold (limit + 3)</span>
+      <span><i class="sw dot"></i>DTI power limit, 168 W/kg</span>
+    </div>
+    <div class="chart" id="env" aria-label="Car acceleration envelope by speed"></div>
+    <p class="note">Gripping, the car never passed 8.8 m/s² (Maceira 10-10: 6.3 at p99). At 60–80 km/h it reaches about 160 W/kg, the inverters' power limit (2 × 32 kW, 76 % to the wheels, 290 kg). The TC limit sits above both: 10 m/s², and 200 W/kg above 72 km/h.</p>
+  </div>
+
+  <div class="col">
+    <h3>Choosing the derivative window</h3>
+    <p>Each option was run on ERPM sampled as the VCU sees it (newest frame, every 5 ms) over the 216 spin onsets of the night. Exact CAN timestamps barely help: the noise is real motor-speed ripple, not timing.</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Derivative over</th><th class="num">Gripping p99.99</th><th class="num">Gripping max</th><th class="num">Slip when it reaches 13 m/s²</th><th class="num">Spins it never flags</th></tr></thead>
+      <tbody>
+        <tr><td>1 frame (33 ms), VCU step time</td><td class="num">16.0 m/s²</td><td class="num">17.1 m/s²</td><td class="num">1.8 km/h</td><td class="num">8 / 216</td></tr>
+        <tr><td>1 frame, exact CAN time</td><td class="num">15.0 m/s²</td><td class="num">15.7 m/s²</td><td class="num">1.8 km/h</td><td class="num">11 / 219</td></tr>
+        <tr class="pick"><td>2 frames (55 ms), VCU step time · shipped</td><td class="num">10.4 m/s²</td><td class="num">11.3 m/s²</td><td class="num">2.8 km/h</td><td class="num">16 / 216</td></tr>
+        <tr><td>2 frames, exact CAN time</td><td class="num">10.4 m/s²</td><td class="num">11.3 m/s²</td><td class="num">2.9 km/h</td><td class="num">16 / 219</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p>The spins that never cross 13 m/s² creep up slowly. The speed term is there for those, as long as they outgrow the reference.</p>
+  </div>
+</section>
+
+<section id="replay">
+  <div class="col">
+    <h2>Replayed on the 08-10 night</h2>
+    <p>A Python twin of the firmware code (same order, same equations) ran open loop over the whole log, on the ERPM the VCU would have seen. That night the TC was off or blind, so the wheels did what they did, and the replay shows where the new code would have cut.</p>
+    <ul>
+      <li><span class="status">0 of 555</span> cut onsets happened while both rears gripped and the wheel was within 1 km/h of the car.</li>
+      <li><strong>203 of 219 spins cut (93 %).</strong> The first cut came at a median 2.9 km/h of slip, 8.4 km/h at p90.</li>
+      <li>With a 1-frame window, the time spent cutting gripping wheels over the night went from 0.5 s to 2.8 s.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="gains">
+  <div class="col">
+    <h2>Choosing the gains</h2>
+    <p>How much to cut and how fast to give torque back cannot be read from open-loop logs, so the gains came from a straight-line model of the car built with its numbers. Car: 290 kg, 55 % rear, CG 0.35 m high. Motor: <span class="mono">0.338·iq − 1.99 N·m</span> (02-10 dyno), 120 Apk, 32 kW per inverter, 14.73 gear. Tyre peak at slip 0.10. The VCU and ERPM timing are the real ones (5 ms step, 32.8 ms frames). Every setting was scored over five plants (grip μ 0.8, 1.05 and 1.3; wheel inertia 0.15 to 0.3 kg·m²) and three cases (full pedal from 0, 30 and 60 km/h), against the best fixed pedal for each.</p>
+    <p>With μ 1.05 the best fixed pedal is 45 %, the same as the 35–45 % the Maceira report found the tyres take.</p>
+  </div>
+
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Structure</th><th class="num">Distance vs best pedal</th><th class="num">Worst case</th><th class="num">Mean slip</th><th class="num">Slip p95</th></tr></thead>
+      <tbody>
+        <tr><td>TC off</td><td class="num">0.843</td><td class="num">0.684</td><td class="num">76.1 km/h</td><td class="num">89.4 km/h</td></tr>
+        <tr><td>Cut, then give torque back at 2/s (first version)</td><td class="num">0.889</td><td class="num">0.709</td><td class="num">9.0 km/h</td><td class="num">17.7 km/h</td></tr>
+        <tr><td>PI on the speed error (best distance found)</td><td class="num">0.912</td><td class="num">0.782</td><td class="num">18.1 km/h</td><td class="num">28.4 km/h</td></tr>
+        <tr class="pick"><td>Cut at once + learned cut fading at 0.5/s · shipped</td><td class="num">0.904</td><td class="num">0.774</td><td class="num">7.8 km/h</td><td class="num">15.1 km/h</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p>The first version cut to the 0.2 floor on every spin, then ramped back past what the tyre takes, and spun again every 0.2 s. The PI gave the most distance but settled at about twice the slip, which costs lateral grip at corner exit, where most of the logged spins happened. The shipped version beats the first one on every column and keeps slip lowest.</p>
+  </div>
+
+  <div class="panel">
+    <h3>Full pedal from standstill, μ 1.05 (model)</h3>
+    <div class="legend" aria-hidden="true">
+      <span><i class="sw blue"></i>rear wheel</span>
+      <span><i class="sw ink"></i>car</span>
+      <span><i class="sw dash"></i>TC reference</span>
+    </div>
+    <div class="pair">
+      <div>
+        <h4>TC off</h4>
+        <p class="sub" id="d-off"></p>
+        <div class="chart" id="tr-off" aria-label="Launch trace without traction control"></div>
+      </div>
+      <div>
+        <h4>New TC</h4>
+        <p class="sub" id="d-on"></p>
+        <div class="chart" id="tr-on" aria-label="Launch trace with the new traction control"></div>
+      </div>
+    </div>
+    <p class="note">Top: speed in km/h. Bottom: drive command each motor gets, in % of the request. The model has no inverter rpm cap, so without TC the wheel passes the real 104 km/h ceiling. Hover for values.</p>
+  </div>
+
+  <div class="col"><h3>Every case, TC off against the new TC</h3></div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Grip</th><th>From</th><th class="barcell">Mean slip after 0.5 s (km/h)</th><th class="num">Distance off</th><th class="num">Distance TC</th></tr></thead>
+      <tbody id="cases"></tbody>
+    </table>
+  </div>
+  <div class="col">
+    <p class="note">Bars: <span style="color:var(--s-orange)">■</span> TC off, <span style="color:var(--s-blue)">■</span> new TC, same scale. Distance in 2.5 s relative to the best fixed pedal for that grip.</p>
+    <p>On low grip (μ 0.8) slip still reaches 15–28 km/h from a rolling start. The car can only do about 4–5 m/s² there, while the reference rises at the 10 m/s² limit, so a slowly creeping spin stays under it. That is the cost of having no reference speed sensor. On a slippery day, lower the car limit.</p>
+  </div>
+</section>
+
+<section id="params">
+  <div class="col">
+    <h2>Parameters</h2>
+    <p>All in <code>Core/Inc/traction_control_torque_vectoring.h</code>, and all except the history length editable in the map editor's traction tab.</p>
+  </div>
+  <div class="tbl">
+    <table>
+      <thead><tr><th>Define (TRACTION_CONTROL_…)</th><th class="num">Value</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">MAXIMUM_ACCELERATION_MS2</td><td class="num">10</td><td>About 1 g, above the 8.8 m/s² maximum measured gripping. Lower it on a slippery day.</td></tr>
+        <tr><td class="mono">MAXIMUM_POWER_W_PER_KG</td><td class="num">200</td><td>Above the ~160 W/kg measured at 60–80 km/h (inverter limit 168). Only bites above 72 km/h.</td></tr>
+        <tr><td class="mono">MAXIMUM_DECELERATION_MS2</td><td class="num">15</td><td>The most the car can brake. A locking wheel cannot drag the reference down faster.</td></tr>
+        <tr><td class="mono">DERIVATIVE_WINDOW_MS</td><td class="num">55</td><td>Two ERPM frames. One frame reads driveline ripple up to 17 m/s².</td></tr>
+        <tr><td class="mono">ACCELERATION_MARGIN_MS2</td><td class="num">3</td><td>Cut threshold 13 m/s², above the 11.3 maximum of a gripping wheel.</td></tr>
+        <tr><td class="mono">ACCELERATION_GAIN</td><td class="num">0.02</td><td>Per m/s² of excess. Model sweep.</td></tr>
+        <tr><td class="mono">SLIP_TARGET</td><td class="num">0.10</td><td>Tyre peak at slip 0.097 (simulator).</td></tr>
+        <tr><td class="mono">SPEED_MARGIN_KMH</td><td class="num">1.5</td><td>Unchanged.</td></tr>
+        <tr><td class="mono">PROPORTIONAL_GAIN</td><td class="num">0.12</td><td>Per km/h over the allowed speed. Same value as before, now against the new reference.</td></tr>
+        <tr><td class="mono">INTEGRAL_GAIN</td><td class="num">1.0</td><td>Learned cut per km/h over, per second. Model sweep.</td></tr>
+        <tr><td class="mono">RECOVERY_PER_S</td><td class="num">0.5</td><td>Learned cut fades this much per second once the wheel is back. Model sweep.</td></tr>
+        <tr><td class="mono">MINIMUM_SPEED_KMH</td><td class="num">1.0</td><td>Now of the reference speed, not the front wheels.</td></tr>
+        <tr><td class="mono">MINIMUM_TORQUE_FACTOR</td><td class="num">0.2</td><td>Unchanged. Low enough to stop a spin at μ 0.8.</td></tr>
+        <tr><td class="mono">FRAME_HISTORY_LENGTH</td><td class="num">16</td><td>ERPM frames kept for the derivative (internal).</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="files">
+  <div class="col">
+    <h2>What changed</h2>
+    <p>Only the VCU firmware repo. Committed as <code>9d2d890</code> “claude code for TC”.</p>
+    <ul class="files">
+      <li><code>Core/Src/traction_control_torque_vectoring.c</code><span>New controller: frame detection, reference speed, derivative, the three terms. Torque vectoring and sensor reading untouched.</span></li>
+      <li><code>Core/Inc/traction_control_torque_vectoring.h</code><span>Description and equations, parameters with where each value comes from, per-wheel state for Live Expressions, a stand test before the first run.</span></li>
+      <li><code>Core/Inc/throttle_control.h</code><span>Pipeline comment for step 8.</span></li>
+      <li><code>tools/throttle_map_editor.py</code><span>Traction tab lists the new settings. Its selftest finds all 57, none locked.</span></li>
+      <li><code>tools/vcu_live.py</code><span>Also watches wheel acceleration, car limit and reference speeds.</span></li>
+    </ul>
+    <p>Kept compatible: the <code>tc_state</code> values in VCU_states (0x750), so the DBC is unchanged; the function interface used by <code>throttle_control.c</code>.</p>
+    <h3>Checks</h3>
+    <ul>
+      <li>Compiles with the project's ARM GCC 13.3 and flags, clean even with <code>-Wextra -Wconversion -Wdouble-promotion</code>.</li>
+      <li>The whole firmware links. The traction control state takes 348 bytes of RAM.</li>
+      <li>The generated <code>Debug/</code> makefiles predate the traction control file, so a command-line <code>make</code> fails to link. CubeIDE regenerates them on its own build. The tracked <code>Debug/VCU_STM32_Firmware_V1.elf</code> that this deleted was restored from git.</li>
+    </ul>
+  </div>
+</section>
+
+<section id="next">
+  <div class="col">
+    <h2>Before and after the first run</h2>
+    <ol>
+      <li><strong>Stand test.</strong> Car on stands, press the pedal. The rear wheels should spin up in steps, on average at about 36 km/h per second, with <code>traction_control.state</code> at CUT_BOTH. Without TC they jump at once.</li>
+      <li><strong>On track</strong>, log <code>tc_state</code> and <code>tc_factor_rear_left/right</code> from VCU_states (0x750). With the debugger, watch acceleration and reference speed in <code>vcu_live.py</code>. Tune the gains from the editor.</li>
+    </ol>
+    <h3>Open points outside this change</h3>
+    <ul>
+      <li><strong>Faster ERPM.</strong> Raising the inverters' ERPM message rate to 100 Hz or more (DTI configuration) would cut detection delay. The code adapts to faster frames by itself.</li>
+      <li><strong>Throttle map speed.</strong> The map still uses the slower rear wheel as vehicle speed, so it asks for more torque when both rears spin. The TC fights this but does not remove it. The TC reference speed would be a better input.</li>
+      <li><strong>Simulator twin.</strong> <code>TractionControlTorqueVectoring.m</code> still has the old controller. The header says so.</li>
+      <li><strong>Regen locking.</strong> The 425 rear locks under regen at Maceira are not covered: regen does not go through the traction control. The same reference speed could drive an anti-lock on regen.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+<div id="tip" hidden></div>
+
+<script>
+const TRACES = {"off":{"t":[0.0,0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.2,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.3,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.4,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.5,0.51,0.52,0.53,0.54,0.55,0.56,0.57,0.58,0.59,0.6,0.61,0.62,0.63,0.64,0.65,0.66,0.67,0.68,0.69,0.7,0.71,0.72,0.73,0.74,0.75,0.76,0.77,0.78,0.79,0.8,0.81,0.82,0.83,0.84,0.85,0.86,0.87,0.88,0.89,0.9,0.91,0.92,0.93,0.94,0.95,0.96,0.97,0.98,0.99,1.0,1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.09,1.1,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.2,1.21,1.22,1.23,1.24,1.25,1.26,1.27,1.28,1.29,1.3,1.31,1.32,1.33,1.34,1.35,1.36,1.37,1.38,1.39,1.4,1.41,1.42,1.43,1.44,1.45,1.46,1.47,1.48,1.49,1.5,1.51,1.52,1.53,1.54,1.55,1.56,1.57,1.58,1.59,1.6,1.61,1.62,1.63,1.64,1.65,1.66,1.67,1.68,1.69,1.7,1.71,1.72,1.73,1.74,1.75,1.76,1.77,1.78,1.79,1.8,1.81,1.82,1.83,1.84,1.85,1.86,1.87,1.88,1.89,1.9,1.91,1.92,1.93,1.94,1.95,1.96,1.97,1.98,1.99,2.0,2.01,2.02,2.03,2.04,2.05,2.06,2.07,2.08,2.09,2.1,2.11,2.12,2.13,2.14,2.15,2.16,2.17,2.18,2.19,2.2,2.21,2.22,2.23,2.24,2.25,2.26,2.27,2.28,2.29,2.3,2.31,2.32,2.33,2.34,2.35,2.36,2.37,2.38,2.39,2.4,2.41,2.42,2.43,2.44,2.45,2.46,2.47,2.48,2.49],"car":[0.0,0.0,0.01,0.02,0.09,0.16,0.28,0.44,0.62,0.83,1.07,1.31,1.49,1.66,1.83,2.0,2.17,2.33,2.5,2.67,2.84,3.01,3.17,3.34,3.51,3.68,3.84,4.01,4.18,4.35,4.51,4.68,4.85,5.02,5.19,5.35,5.52,5.69,5.86,6.02,6.19,6.36,6.53,6.69,6.86,7.03,7.2,7.37,7.53,7.7,7.87,8.04,8.2,8.37,8.54,8.71,8.88,9.04,9.21,9.38,9.55,9.71,9.88,10.05,10.22,10.39,10.55,10.72,10.89,11.06,11.22,11.39,11.56,11.73,11.89,12.06,12.23,12.4,12.57,12.73,12.9,13.07,13.24,13.4,13.57,13.74,13.91,14.07,14.24,14.41,14.58,14.74,14.91,15.08,15.25,15.42,15.58,15.75,15.92,16.08,16.25,16.42,16.59,16.75,16.92,17.09,17.26,17.42,17.59,17.76,17.93,18.09,18.26,18.43,18.6,18.76,18.93,19.1,19.26,19.43,19.6,19.77,19.93,20.1,20.27,20.43,20.6,20.77,20.93,21.1,21.27,21.44,21.6,21.77,21.94,22.1,22.27,22.44,22.6,22.77,22.94,23.1,23.27,23.44,23.6,23.77,23.94,24.1,24.27,24.43,24.6,24.77,24.93,25.1,25.27,25.43,25.6,25.76,25.93,26.1,26.26,26.43,26.59,26.76,26.93,27.09,27.26,27.42,27.59,27.76,27.92,28.09,28.25,28.42,28.58,28.75,28.92,29.08,29.25,29.41,29.58,29.74,29.91,30.07,30.24,30.4,30.57,30.73,30.9,31.06,31.23,31.39,31.56,31.72,31.89,32.05,32.22,32.38,32.55,32.71,32.88,33.04,33.2,33.37,33.53,33.7,33.86,34.03,34.19,34.35,34.52,34.68,34.85,35.01,35.17,35.34,35.5,35.66,35.83,35.99,36.16,36.32,36.48,36.65,36.81,36.97,37.14,37.3,37.46,37.63,37.79,37.95,38.11,38.28,38.44,38.6,38.77,38.93,39.09,39.25,39.42,39.58,39.74,39.9,40.07,40.23,40.39,40.55,40.72,40.88],"wheel":[0.0,0.0,0.06,0.32,0.03,0.42,0.59,0.47,0.69,0.93,1.22,2.77,7.09,12.63,19.24,26.88,35.53,45.21,54.48,61.71,67.65,72.71,77.12,81.01,84.49,87.63,90.49,93.1,95.5,97.71,99.77,101.67,103.45,105.11,106.66,108.12,109.48,110.77,111.98,113.12,114.2,115.22,116.18,117.1,117.96,118.78,119.56,120.3,121.01,121.68,122.31,122.92,123.49,124.04,124.56,125.06,125.54,125.99,126.42,126.83,127.23,127.6,127.96,128.3,128.63,128.94,129.24,129.53,129.8,130.06,130.31,130.55,130.78,130.99,131.2,131.4,131.59,131.77,131.94,132.11,132.27,132.42,132.56,132.7,132.83,132.96,133.08,133.19,133.3,133.41,133.51,133.6,133.69,133.78,133.86,133.94,134.02,134.09,134.15,134.22,134.28,134.34,134.39,134.45,134.5,134.54,134.59,134.63,134.67,134.71,134.75,134.78,134.81,134.84,134.87,134.9,134.92,134.94,134.97,134.99,135.0,135.02,135.04,135.05,135.07,135.08,135.09,135.1,135.11,135.12,135.12,135.13,135.14,135.14,135.14,135.15,135.15,135.15,135.15,135.15,135.15,135.15,135.15,135.15,135.14,135.14,135.13,135.13,135.13,135.12,135.11,135.11,135.1,135.09,135.09,135.08,135.07,135.06,135.05,135.04,135.03,135.02,135.01,135.0,134.99,134.98,134.97,134.96,134.95,134.93,134.92,134.91,134.9,134.88,134.87,134.86,134.84,134.83,134.82,134.8,134.79,134.78,134.76,134.75,134.73,134.72,134.7,134.69,134.67,134.66,134.64,134.63,134.61,134.6,134.58,134.56,134.55,134.53,134.52,134.5,134.48,134.47,134.45,134.44,134.42,134.4,134.39,134.37,134.35,134.33,134.32,134.3,134.28,134.27,134.25,134.23,134.21,134.2,134.18,134.16,134.14,134.13,134.11,134.09,134.07,134.05,134.04,134.02,134.0,133.98,133.96,133.95,133.93,133.91,133.89,133.87,133.85,133.83,133.82,133.8,133.78,133.76,133.74,133.72,133.7,133.68,133.66,133.65,133.63,133.61],"fac":[0.0,0.05,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6,0.65,0.7,0.75,0.8,0.85,0.9,0.95,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0,1.0],"dist":14.1},"on":{"t":[0.0,0.01,0.02,0.03,0.04,0.05,0.06,0.07,0.08,0.09,0.1,0.11,0.12,0.13,0.14,0.15,0.16,0.17,0.18,0.19,0.2,0.21,0.22,0.23,0.24,0.25,0.26,0.27,0.28,0.29,0.3,0.31,0.32,0.33,0.34,0.35,0.36,0.37,0.38,0.39,0.4,0.41,0.42,0.43,0.44,0.45,0.46,0.47,0.48,0.49,0.5,0.51,0.52,0.53,0.54,0.55,0.56,0.57,0.58,0.59,0.6,0.61,0.62,0.63,0.64,0.65,0.66,0.67,0.68,0.69,0.7,0.71,0.72,0.73,0.74,0.75,0.76,0.77,0.78,0.79,0.8,0.81,0.82,0.83,0.84,0.85,0.86,0.87,0.88,0.89,0.9,0.91,0.92,0.93,0.94,0.95,0.96,0.97,0.98,0.99,1.0,1.01,1.02,1.03,1.04,1.05,1.06,1.07,1.08,1.09,1.1,1.11,1.12,1.13,1.14,1.15,1.16,1.17,1.18,1.19,1.2,1.21,1.22,1.23,1.24,1.25,1.26,1.27,1.28,1.29,1.3,1.31,1.32,1.33,1.34,1.35,1.36,1.37,1.38,1.39,1.4,1.41,1.42,1.43,1.44,1.45,1.46,1.47,1.48,1.49,1.5,1.51,1.52,1.53,1.54,1.55,1.56,1.57,1.58,1.59,1.6,1.61,1.62,1.63,1.64,1.65,1.66,1.67,1.68,1.69,1.7,1.71,1.72,1.73,1.74,1.75,1.76,1.77,1.78,1.79,1.8,1.81,1.82,1.83,1.84,1.85,1.86,1.87,1.88,1.89,1.9,1.91,1.92,1.93,1.94,1.95,1.96,1.97,1.98,1.99,2.0,2.01,2.02,2.03,2.04,2.05,2.06,2.07,2.08,2.09,2.1,2.11,2.12,2.13,2.14,2.15,2.16,2.17,2.18,2.19,2.2,2.21,2.22,2.23,2.24,2.25,2.26,2.27,2.28,2.29,2.3,2.31,2.32,2.33,2.34,2.35,2.36,2.37,2.38,2.39,2.4,2.41,2.42,2.43,2.44,2.45,2.46,2.47,2.48,2.49],"car":[0.0,0.0,0.01,0.02,0.09,0.16,0.28,0.44,0.62,0.83,1.07,1.31,1.49,1.66,1.83,2.0,2.17,2.34,2.51,2.67,2.8,2.99,3.16,3.34,3.52,3.69,3.87,4.06,4.26,4.4,4.54,4.69,4.84,4.99,5.15,5.31,5.47,5.64,5.8,5.98,6.15,6.33,6.51,6.69,6.88,7.07,7.26,7.44,7.61,7.78,7.95,8.11,8.28,8.46,8.64,8.83,8.99,9.16,9.34,9.53,9.73,9.92,10.12,10.32,10.53,10.74,10.95,11.16,11.38,11.6,11.82,12.05,12.28,12.51,12.75,12.99,13.23,13.47,13.72,13.97,14.22,14.47,14.71,14.95,15.19,15.42,15.66,15.91,16.14,16.36,16.57,16.78,17.0,17.22,17.46,17.7,17.91,18.11,18.3,18.49,18.67,18.86,19.05,19.26,19.43,19.58,19.72,19.81,19.9,20.0,20.1,20.2,20.31,20.42,20.53,20.65,20.77,20.89,21.01,21.14,21.27,21.41,21.55,21.69,21.83,21.98,22.13,22.28,22.44,22.6,22.76,22.93,23.1,23.27,23.45,23.62,23.81,23.99,24.18,24.37,24.56,24.76,24.96,25.16,25.37,25.58,25.79,26.01,26.22,26.45,26.67,26.9,27.13,27.36,27.6,27.84,28.08,28.32,28.57,28.82,29.07,29.32,29.57,29.83,30.07,30.32,30.56,30.82,31.07,31.31,31.56,31.8,32.03,32.25,32.45,32.65,32.85,33.06,33.29,33.51,33.72,33.92,34.12,34.32,34.53,34.74,34.95,35.17,35.39,35.61,35.83,36.06,36.29,36.52,36.76,36.99,37.23,37.47,37.72,37.96,38.2,38.44,38.68,38.93,39.17,39.41,39.64,39.87,40.1,40.33,40.57,40.82,41.06,41.3,41.54,41.75,41.96,42.16,42.35,42.55,42.77,42.97,43.18,43.39,43.56,43.71,43.86,44.02,44.19,44.35,44.52,44.69,44.86,45.04,45.21,45.39,45.57,45.75,45.93,46.11,46.29,46.47,46.65,46.83,47.0,47.19,47.38,47.57,47.77,47.97],"wheel":[0.0,0.0,0.06,0.32,0.03,0.42,0.59,0.47,0.69,0.93,1.22,2.77,7.09,12.63,16.61,14.32,11.09,7.86,4.64,2.61,3.04,4.21,9.04,14.54,14.98,12.87,10.38,7.69,4.27,4.47,4.62,4.77,4.92,5.08,5.24,5.41,5.58,5.75,5.92,6.1,6.28,6.47,6.66,6.85,7.04,7.24,7.44,7.64,7.82,8.0,8.18,8.36,8.54,8.72,8.92,9.13,9.31,9.49,9.68,9.88,10.09,10.3,10.52,10.74,10.96,11.19,11.42,11.66,11.9,12.14,12.39,12.64,12.9,13.16,13.43,13.7,13.98,14.27,14.56,14.86,15.17,15.49,15.85,16.25,16.72,17.27,18.01,19.04,20.56,22.65,22.32,20.42,17.78,18.55,19.81,21.72,24.42,27.73,31.44,33.76,31.71,28.76,25.42,21.31,19.75,19.89,20.06,20.18,20.28,20.4,20.51,20.63,20.75,20.87,21.0,21.13,21.27,21.41,21.55,21.7,21.85,22.0,22.15,22.32,22.48,22.65,22.82,22.99,23.17,23.35,23.54,23.73,23.93,24.12,24.33,24.53,24.74,24.96,25.18,25.4,25.63,25.86,26.1,26.34,26.59,26.84,27.1,27.36,27.63,27.91,28.19,28.48,28.78,29.09,29.41,29.74,30.09,30.46,30.84,31.26,31.73,32.26,32.88,33.66,34.66,34.75,34.3,33.73,33.7,34.88,36.44,38.44,40.95,43.96,47.34,46.47,43.26,39.33,35.35,34.75,35.03,35.31,35.56,35.81,36.06,36.32,36.58,36.85,37.13,37.41,37.69,37.99,38.29,38.59,38.91,39.24,39.58,39.94,40.31,40.71,41.13,41.59,42.1,42.67,43.34,44.15,45.14,46.39,46.25,45.27,44.11,44.62,45.96,47.64,49.75,52.32,55.34,57.03,54.26,50.36,45.77,44.79,45.25,45.6,46.17,46.64,47.02,47.39,47.78,48.21,48.69,49.23,49.87,50.63,50.68,50.38,50.08,50.18,51.19,52.51,54.1,55.99,58.21,60.71,59.31,55.65,51.23,50.77,52.03,53.45],"ref":[0.02,0.02,0.02,0.02,0.06,0.06,0.06,0.42,0.42,0.42,1.35,1.35,1.35,1.35,2.61,2.61,2.61,3.69,3.69,3.69,2.4,2.4,2.4,3.48,3.48,3.48,3.48,4.74,4.74,4.74,4.61,4.61,4.61,5.02,5.02,5.02,5.02,5.48,5.48,5.48,6.3,6.3,6.3,6.66,6.66,6.66,7.35,7.35,7.35,7.35,7.88,7.88,7.88,8.6,8.6,8.6,9.29,9.29,9.29,9.29,9.78,9.78,9.78,10.7,10.7,10.7,11.14,11.14,11.14,12.22,12.22,12.22,12.22,12.98,12.98,12.98,14.03,14.03,14.03,15.04,15.04,15.04,15.04,15.9,15.9,15.9,16.98,16.98,16.98,18.24,18.24,18.24,18.32,18.32,18.32,18.32,19.58,19.58,19.58,20.66,20.66,20.66,21.92,21.92,21.92,20.3,20.3,20.3,20.3,20.54,20.54,20.54,20.78,20.78,20.78,21.12,21.12,21.12,21.12,21.71,21.71,21.71,22.33,22.33,22.33,22.48,22.48,22.48,23.16,23.16,23.16,23.16,23.8,23.8,23.8,24.36,24.36,24.36,24.93,24.93,24.93,24.93,25.95,25.95,25.95,26.55,26.55,26.55,27.47,27.47,27.47,28.38,28.38,28.38,28.38,29.5,29.5,29.5,30.58,30.58,30.58,31.84,31.84,31.84,32.92,32.92,32.92,32.92,33.57,33.57,33.57,34.83,34.83,34.83,35.91,35.91,35.91,35.91,37.17,37.17,37.17,35.55,35.55,35.55,35.96,35.96,35.96,36.94,36.94,36.94,36.94,37.96,37.96,37.96,38.88,38.88,38.88,39.96,39.96,39.96,39.96,41.16,41.16,41.16,42.24,42.24,42.24,43.5,43.5,43.5,44.13,44.13,44.13,44.13,45.39,45.39,45.39,46.47,46.47,46.47,46.94,46.94,46.94,46.94,45.81,45.81,45.81,46.78,46.78,46.78,48.04,48.04,48.04,49.12,49.12,49.12,49.12,50.09,50.09,50.09,51.17,51.17,51.17,52.43,52.43,52.43,51.38,51.38,51.38,51.38],"fac":[0.0,0.05,0.1,0.15,0.2,0.25,0.3,0.35,0.4,0.45,0.5,0.55,0.6,0.65,0.14,0.15,0.16,0.17,0.18,0.19,0.589,0.594,0.599,0.2,0.2,0.2,0.2,0.2,0.2,0.2,0.202,0.207,0.212,0.217,0.222,0.227,0.232,0.237,0.242,0.247,0.252,0.257,0.262,0.267,0.272,0.277,0.282,0.287,0.292,0.297,0.302,0.307,0.312,0.317,0.322,0.327,0.332,0.337,0.342,0.347,0.352,0.357,0.362,0.367,0.372,0.377,0.382,0.387,0.392,0.397,0.402,0.407,0.412,0.417,0.422,0.427,0.432,0.437,0.442,0.447,0.452,0.457,0.462,0.467,0.472,0.477,0.482,0.487,0.492,0.283,0.288,0.293,0.512,0.517,0.522,0.527,0.532,0.537,0.542,0.2,0.2,0.2,0.2,0.2,0.2,0.202,0.207,0.212,0.217,0.222,0.227,0.232,0.237,0.242,0.247,0.252,0.257,0.262,0.267,0.272,0.277,0.282,0.287,0.292,0.297,0.302,0.307,0.312,0.317,0.322,0.327,0.332,0.337,0.342,0.347,0.352,0.357,0.362,0.367,0.372,0.377,0.382,0.387,0.392,0.397,0.402,0.407,0.412,0.417,0.422,0.427,0.432,0.437,0.442,0.447,0.452,0.457,0.462,0.467,0.472,0.477,0.482,0.487,0.492,0.411,0.416,0.421,0.426,0.517,0.522,0.527,0.532,0.537,0.542,0.2,0.2,0.2,0.2,0.356,0.361,0.366,0.371,0.376,0.381,0.386,0.391,0.396,0.401,0.406,0.411,0.416,0.421,0.426,0.431,0.436,0.441,0.446,0.451,0.456,0.461,0.466,0.471,0.476,0.481,0.486,0.491,0.496,0.377,0.382,0.387,0.516,0.521,0.526,0.531,0.536,0.541,0.546,0.2,0.2,0.2,0.399,0.404,0.409,0.414,0.419,0.424,0.429,0.434,0.439,0.444,0.449,0.454,0.459,0.4,0.405,0.41,0.415,0.484,0.489,0.494,0.499,0.504,0.509,0.2,0.2,0.2,0.494,0.499,0.504,0.509],"dist":16.0}};
+
+const NS = "http://www.w3.org/2000/svg";
+function el(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function txt(parent, x, y, s, cls, anchor) {
+  const t = el("text", { x, y, class: cls || "tk", "text-anchor": anchor || "start" }, parent);
+  t.textContent = s;
+  return t;
+}
+const lin = (d0, d1, r0, r1) => v => r0 + (v - d0) / (d1 - d0) * (r1 - r0);
+const pathOf = (xs, ys, fx, fy) => xs.map((x, i) => (i ? "L" : "M") + fx(x).toFixed(1) + " " + fy(ys[i]).toFixed(1)).join("");
+
+const tip = document.getElementById("tip");
+function moveTip(ev) {
+  const pad = 14; const r = tip.getBoundingClientRect();
+  let x = ev.clientX + pad, y = ev.clientY + pad;
+  if (x + r.width > innerWidth - 8) x = ev.clientX - r.width - pad;
+  if (y + r.height > innerHeight - 8) y = ev.clientY - r.height - pad;
+  tip.style.left = Math.max(8, x) + "px"; tip.style.top = Math.max(8, y) + "px";
+}
+function showTip(html, ev) { tip.innerHTML = html; tip.hidden = false; moveTip(ev); }
+function hideTip() { tip.hidden = true; }
+function hover(node, html) {
+  node.addEventListener("pointerenter", ev => showTip(html, ev));
+  node.addEventListener("pointermove", moveTip);
+  node.addEventListener("pointerleave", hideTip);
+}
+const key = c => `<i class="k" style="background:var(${c})"></i>`;
+
+/* ---- Chart 1: acceleration ranges ---- */
+function drawStrip(host) {
+  const rows = [
+    { label: "Car, both rears gripping (150 ms average)", lo: 0, hi: 8.8, cls: "f-blue", end: "max 8.8",
+      tip: "<b>Car, both rears gripping</b><br>p99 6.5 · p99.9 7.8 · max 8.8 m/s²<br>08-10 ESTG, 150 ms average" },
+    { label: "Gripping wheel as the TC reads it: 2 frames, 55 ms", lo: 0, hi: 11.3, cls: "f-blue", end: "max 11.3",
+      tip: "<b>Gripping wheel, 2-frame derivative</b><br>p99.9 8.4 · p99.99 10.4 · max 11.3 m/s²<br>Never reaches the 13 m/s² cut" },
+    { label: "Gripping wheel over 1 frame, 33 ms (rejected)", lo: 0, hi: 17.1, cls: "f-blue", end: "max 17.1",
+      tip: "<b>Gripping wheel, 1-frame derivative</b><br>p99.9 12.3 · p99.99 16.0 · max 17.1 m/s²<br>Driveline ripple crosses the cut" },
+    { label: "Rear wheel spinning up", lo: 20, hi: 60, cls: "f-orange", end: "20–60",
+      tip: "<b>Spinning rear wheel</b><br>Speeds up at about 20–60 m/s² as the tyre lets go<br>08-10 and 10-10 spins" },
+  ];
+  const W = Math.max(300, host.clientWidth), rowH = 46, top = 30, bottom = 30;
+  const H = top + rows.length * rowH + bottom;
+  host.innerHTML = "";
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img" }, host);
+  const L = 4, R = W - 10, x = lin(0, 65, L, R), base = H - bottom;
+  for (let v = 0; v <= 60; v += 10) {
+    el("line", { x1: x(v), x2: x(v), y1: top - 4, y2: base, class: "gr" }, svg);
+    txt(svg, x(v), base + 16, v, "tk", v === 0 ? "start" : "middle");
+  }
+  txt(svg, R, base + 16, "m/s²", "tk", "end");
+  el("line", { x1: L, x2: R, y1: base, y2: base, class: "ax" }, svg);
+  el("line", { x1: x(10), x2: x(10), y1: top - 4, y2: base, class: "l-dash" }, svg);
+  el("line", { x1: x(13), x2: x(13), y1: top - 4, y2: base, class: "l-ink", "stroke-width": 1.5 }, svg);
+  txt(svg, x(10) - 4, top - 10, "car limit 10", "tk", "end");
+  txt(svg, x(13) + 4, top - 10, "cut from 13", "lbk", "start");
+  rows.forEach((r, i) => {
+    const y0 = top + i * rowH, yb = y0 + 24;
+    const w = Math.max(3, x(r.hi) - x(r.lo));
+    el("rect", { x: x(r.lo), y: yb, width: w, height: 10, rx: 3, class: r.cls }, svg);
+    txt(svg, L, y0 + 16, r.label, "lb");
+    if (x(r.hi) + 64 < R) txt(svg, x(r.hi) + 6, yb + 9, r.end, "tk");
+    else txt(svg, x(r.lo) - 6, yb + 9, r.end, "tk", "end");
+    const h = el("rect", { x: L, y: y0 + 2, width: R - L, height: rowH - 4, class: "hit" }, svg);
+    hover(h, r.tip);
+  });
+}
+
+/* ---- Chart 2: car acceleration envelope ---- */
+function drawEnvelope(host) {
+  const bins = [[3, 10, 6.75, 6.23, 11999], [10, 20, 8.76, 7.85, 14019], [20, 30, 8.45, 8.04, 11537], [30, 40, 7.97, 7.50, 7708],
+                [40, 50, 7.97, 7.79, 2016], [50, 60, 8.04, 7.84, 1019], [60, 80, 7.59, 7.58, 90]];
+  const W = Math.max(300, host.clientWidth), H = 310, m = { l: 34, r: 10, t: 26, b: 36 };
+  host.innerHTML = "";
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img" }, host);
+  const x = lin(0, 100, m.l, W - m.r), y = lin(0, 14, H - m.b, m.t);
+  for (let v = 0; v <= 14; v += 2) {
+    el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: v ? "gr" : "ax" }, svg);
+    txt(svg, m.l - 6, y(v) + 4, v, "tk", "end");
+  }
+  for (let v = 0; v <= 100; v += 20) txt(svg, x(v), H - m.b + 16, v, "tk", "middle");
+  txt(svg, W - m.r, H - 4, "km/h", "tk", "end");
+  txt(svg, 0, 11, "m/s²", "tk", "start");
+  const vs = []; for (let v = 0; v <= 100; v += 0.5) vs.push(v);
+  const limit = v => Math.min(10, 200 / Math.max(v / 3.6, 0.1));
+  el("path", { d: pathOf(vs, vs.map(v => limit(v) + 3), x, y), class: "l-dash" }, svg);
+  const vp = vs.filter(v => 168 / (v / 3.6) <= 14);
+  el("path", { d: pathOf(vp, vp.map(v => 168 / (v / 3.6)), x, y), class: "l-dot" }, svg);
+  el("path", { d: pathOf(vs, vs.map(limit), x, y), class: "l-ink" }, svg);
+  bins.forEach(([lo, hi, mx, p999, n]) => {
+    const cx = x((lo + hi) / 2);
+    el("line", { x1: x(lo) + 3, x2: x(hi) - 3, y1: y(mx), y2: y(mx), class: "l-blue", "stroke-opacity": 0.45 }, svg);
+    el("circle", { cx, cy: y(p999), r: 4.5, class: "ring-blue" }, svg);
+    el("circle", { cx, cy: y(mx), r: 4.5, class: "f-blue", stroke: "var(--surface)", "stroke-width": 2 }, svg);
+    const h = el("rect", { x: x(lo), y: m.t, width: x(hi) - x(lo), height: H - m.b - m.t, class: "hit" }, svg);
+    hover(h, `<b>${lo}–${hi} km/h</b> · ${n.toLocaleString("en")} samples<br>${key("--s-blue")}max ${mx.toFixed(2)} · p99.9 ${p999.toFixed(2)} m/s²<br>TC limit ${limit((lo + hi) / 2).toFixed(1)} · cut from ${(limit((lo + hi) / 2) + 3).toFixed(1)} m/s²`);
+  });
+  if (W > 520) {
+    txt(svg, x(99), y(limit(99)) - 7, "car limit", "lbk", "end");
+    txt(svg, x(99), y(limit(99) + 3) - 7, "cut threshold", "lb", "end");
+  }
+}
+
+/* ---- Chart 3: launch traces ---- */
+function drawTrace(host, d, showRef) {
+  const W = Math.max(280, host.clientWidth), m = { l: 34, r: 8 }, top = 10, hS = 180, gap = 26, hC = 60;
+  const yC0 = top + hS + gap, H = yC0 + hC + 26;
+  host.innerHTML = "";
+  const svg = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, role: "img" }, host);
+  const x = lin(0, 2.5, m.l, W - m.r), ys = lin(0, 140, top + hS, top), yc = lin(0, 100, yC0 + hC, yC0);
+  for (let v = 0; v <= 140; v += 20) {
+    el("line", { x1: m.l, x2: W - m.r, y1: ys(v), y2: ys(v), class: v ? "gr" : "ax" }, svg);
+    if (v % 40 === 0) txt(svg, m.l - 6, ys(v) + 4, v, "tk", "end");
+  }
+  for (const v of [0, 50, 100]) {
+    el("line", { x1: m.l, x2: W - m.r, y1: yc(v), y2: yc(v), class: v ? "gr" : "ax" }, svg);
+    txt(svg, m.l - 6, yc(v) + 4, v + (v === 100 ? "%" : ""), "tk", "end");
+  }
+  for (let t = 0; t <= 2.5; t += 0.5) txt(svg, x(t), H - 8, t === 2.5 ? "2.5 s" : t.toFixed(1), "tk", t === 0 ? "start" : (t === 2.5 ? "end" : "middle"));
+  const cmd = d.fac.map(v => v * 100);
+  el("path", { d: pathOf(d.t, cmd, x, yc) + `L${x(d.t[d.t.length - 1])} ${yc(0)}L${x(0)} ${yc(0)}Z`, class: "a-blue" }, svg);
+  el("path", { d: pathOf(d.t, cmd, x, yc), class: "l-blue", "stroke-width": 1.5 }, svg);
+  if (showRef) el("path", { d: pathOf(d.t, d.ref, x, ys), class: "l-dash" }, svg);
+  el("path", { d: pathOf(d.t, d.car, x, ys), class: "l-car" }, svg);
+  el("path", { d: pathOf(d.t, d.wheel, x, ys), class: "l-blue" }, svg);
+  const cross = el("line", { x1: 0, x2: 0, y1: top, y2: yC0 + hC, class: "cross", visibility: "hidden" }, svg);
+  const dotW = el("circle", { r: 4, class: "f-blue", stroke: "var(--surface)", "stroke-width": 2, visibility: "hidden" }, svg);
+  const hit = el("rect", { x: m.l, y: top, width: W - m.l - m.r, height: yC0 + hC - top, class: "hit" }, svg);
+  const show = ev => {
+    const b = svg.getBoundingClientRect();
+    const t = Math.min(2.49, Math.max(0, (ev.clientX - b.left - m.l) / (W - m.l - m.r) * 2.5));
+    const i = Math.min(d.t.length - 1, Math.round(t / 0.01));
+    const px = x(d.t[i]);
+    cross.setAttribute("x1", px); cross.setAttribute("x2", px); cross.setAttribute("visibility", "visible");
+    dotW.setAttribute("cx", px); dotW.setAttribute("cy", ys(d.wheel[i])); dotW.setAttribute("visibility", "visible");
+    showTip(`<b>${d.t[i].toFixed(2)} s</b><br>${key("--s-blue")}rear wheel ${d.wheel[i].toFixed(1)} km/h<br>${key("--ink")}car ${d.car[i].toFixed(1)} km/h` +
+            (showRef ? `<br>reference ${d.ref[i].toFixed(1)} km/h` : "") + `<br>command ${cmd[i].toFixed(0)} %`, ev);
+  };
+  hit.addEventListener("pointermove", show);
+  hit.addEventListener("pointerenter", show);
+  hit.addEventListener("pointerleave", () => { cross.setAttribute("visibility", "hidden"); dotW.setAttribute("visibility", "hidden"); hideTip(); });
+}
+
+/* ---- Table: every case ---- */
+function fillCases() {
+  const rows = [
+    ["μ 1.05", 0, 109.0, 4.2, 0.69, 0.78], ["μ 1.05", 30, 76.1, 8.2, 0.86, 0.92], ["μ 1.05", 60, 34.9, 17.0, 0.94, 0.97],
+    ["μ 0.8", 0, 161.5, 4.8, 0.72, 0.84], ["μ 0.8", 30, 131.3, 14.8, 0.90, 0.97], ["μ 0.8", 60, 103.0, 28.0, 0.94, 0.97],
+    ["μ 1.3", 0, 68.8, 4.4, 0.68, 0.78], ["μ 1.3", 30, 26.2, 5.2, 0.89, 0.95], ["μ 1.3", 60, 3.7, 3.7, 1.00, 1.00],
+  ];
+  const max = 165;
+  document.getElementById("cases").innerHTML = rows.map(([g, v0, off, on, doff, don]) => `
+    <tr><td>${g}</td><td class="num">${v0} km/h</td>
+      <td class="barcell">
+        <div class="barrow"><div class="bar off" style="width:${(off / max * 100).toFixed(1)}%"></div><em>${off.toFixed(1)}</em></div>
+        <div class="barrow"><div class="bar on" style="width:${(on / max * 100).toFixed(1)}%"></div><em>${on.toFixed(1)}</em></div>
+      </td>
+      <td class="num">${doff.toFixed(2)}</td><td class="num">${don.toFixed(2)}</td></tr>`).join("");
+}
+
+function drawAll() {
+  drawStrip(document.getElementById("strip"));
+  drawEnvelope(document.getElementById("env"));
+  drawTrace(document.getElementById("tr-off"), TRACES.off, false);
+  drawTrace(document.getElementById("tr-on"), TRACES.on, true);
+}
+document.getElementById("d-off").textContent = `${TRACES.off.dist} m in 2.5 s, wheel up to ${Math.max(...TRACES.off.wheel).toFixed(0)} km/h`;
+document.getElementById("d-on").textContent = `${TRACES.on.dist} m in 2.5 s, wheel up to ${Math.max(...TRACES.on.wheel).toFixed(0)} km/h`;
+fillCases();
+drawAll();
+let rz; addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(drawAll, 120); });
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(drawAll);
+</script>
+</body>
+</html>
