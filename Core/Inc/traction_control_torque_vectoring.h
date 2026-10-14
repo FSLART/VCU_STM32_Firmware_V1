@@ -139,14 +139,16 @@
 // Gains: straight line model of the car (ERPM every 33 ms, tyre mu 0.8-1.3) - 10x less slip than
 // without TC, ~0.9 of the distance of a perfect pedal (no TC: 0.84). Integral 1.0 / fade 0.5 beat a
 // plain "cut and give back at a rate" on all of: distance, mean slip, worst case. Tune on track.
-#define TRACTION_CONTROL_SLIP_TARGET                 0.10f // Slip allowed before cutting [-] (tyre peak 0.097)
+// 13-10 afternoon (this TC, 152 cuts in 230 s of drive): cuts were real spins (~34 m/s2), but 70 of them
+// still held after the wheel was back (< 5 % slip) and < 40 km/h they went to the floor -> lighter:
+#define TRACTION_CONTROL_SLIP_TARGET                 0.15f // Slip allowed before cutting [-] (tyre: 97 % of peak force at 0.15)
 #define TRACTION_CONTROL_SPEED_MARGIN_KMH            1.5f  // + this speed [km/h]
 #define TRACTION_CONTROL_PROPORTIONAL_GAIN           0.12f // Torque cut per km/h over the allowed speed [-/(km/h)]
 #define TRACTION_CONTROL_INTEGRAL_GAIN               1.0f  // Learned cut grows this per km/h over, per second
-#define TRACTION_CONTROL_RECOVERY_PER_S              0.5f  // Learned cut fades this per second once the wheel is back
+#define TRACTION_CONTROL_RECOVERY_PER_S              1.5f  // Learned cut fades this per second once the wheel is back (max 0.7 -> 0.5 s)
 // Cut
 #define TRACTION_CONTROL_MINIMUM_SPEED_KMH           1.0f  // Off below this reference speed [km/h]
-#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR       0.2f  // Never less than this x the request (at most -80 %)
+#define TRACTION_CONTROL_MINIMUM_TORQUE_FACTOR       0.3f  // Never less than this x the request (at most -70 %)
 #define TRACTION_CONTROL_FRAME_HISTORY_LENGTH       16     // ERPM frames kept for the derivative
 
 /* ========================== TORQUE VECTORING ========================= */
