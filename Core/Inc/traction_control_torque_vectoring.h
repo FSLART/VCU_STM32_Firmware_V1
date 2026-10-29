@@ -91,8 +91,8 @@
 
 /* ============================== SWITCHES ============================= */
 
-#define TRACTION_CONTROL_ENABLE  1  // 1 = traction control on
-#define TORQUE_VECTORING_ENABLE  1  // 1 = torque vectoring on
+#define TRACTION_CONTROL_ENABLE  0  // 1 = traction control on
+#define TORQUE_VECTORING_ENABLE  0  // 1 = torque vectoring on
 
 /* ================================ CAR ================================ */
 

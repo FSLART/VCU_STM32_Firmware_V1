@@ -46,6 +46,10 @@
 /* ============================= SWITCHES ============================= */
 
 #define THROTTLE_REGEN_ENABLE        1  // 0 = regen off: negative map values give coast
+// 1 = map speed capped at the traction control references (the speed each rear wheel would have
+// rolling with the car): a spinning wheel does not move the map up. How fast the references may
+// rise is set by TRACTION_CONTROL_MAXIMUM_ACCELERATION_MS2 / _POWER_W_PER_KG / _DECELERATION_MS2.
+#define THROTTLE_MAP_SPEED_LIMIT_ENABLE  0
 
 /* ========================= TORQUE RISE LIMIT ======================== */
 // Max drive torque rise rate, %/s (500 = 0 -> 100 % in 0.2 s). 0 = no limit.

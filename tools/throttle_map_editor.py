@@ -429,6 +429,8 @@ SETTINGS = [
         "Limite de travagem DC por inversor (A)",
     ),
 ]
+TCTV_SETTINGS.insert(2, Setting(TRACTION, TC, "THROTTLE_MAP_SPEED_LIMIT_ENABLE", "bool", 0, 1,
+                                "Mapa: velocidade limitada pela referencia do TC (patinagem nao sobe o mapa)"))
 SETTINGS += TCTV_SETTINGS
 BY_NAME = {s.name: s for s in SETTINGS}
 

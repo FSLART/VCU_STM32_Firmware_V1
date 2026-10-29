@@ -85,6 +85,7 @@ void Error_Handler(void);
 /* USER CODE BEGIN Private defines */
 #define DEBUG_PRINT
 //#define BYPASS_SHUTDOWN
+#define BYPASS_SHUTDOWN_AUTONOMOUS  // BENCH ONLY: SDC read as closed while the ACU reports ASMS on (manual keeps the real check)
 
 #ifdef DEBUG_PRINT
 #include <stdio.h>

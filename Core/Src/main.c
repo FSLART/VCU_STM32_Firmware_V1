@@ -53,6 +53,7 @@
 #define IGNITION_DEBOUNCE_TIME_MS 50  // Ignition switch debounce time in milliseconds
 
 #define MAX_RPM_AD 1800  // 44.17 km/h
+#define AS_CMD_TIMEOUT_MS 500  // No RPM/torque target from the Jetson for this long -> zero current
 
 #define PUTCHAR_PROTOTYPE int __io_putchar(int ch)
 
@@ -805,7 +806,7 @@ void UpdateState(void) {
 #endif
 		// Leaving manual ready-to-drive (R2D off, ignition, shutdown, emergency): zero the
 		// inverter current request so the inverters do not keep the last drive/regen command
-		if (previous_state == STATE_READY_MANUAL) {
+		if (previous_state == STATE_READY_MANUAL || previous_state == STATE_READY_AUTONOMOUS) {
 			throttle_control_stop(&hcan2);
 		}
 
@@ -982,15 +983,37 @@ void HandleState(void) {
 
 				// driving
 			} else if (as_system.state == 3) {
-				if (as_system.target_rpm > MAX_RPM_AD) {
-					as_system.target_rpm = MAX_RPM_AD;
-				} else if (as_system.target_rpm < 0) {
-					as_system.target_rpm = 0;
-				}
+				// Signed: the CAN ISR may stamp a tick newer than current_time_auto
+				if ((int32_t) (current_time_auto - as_system.last_control_cmd_ms) > AS_CMD_TIMEOUT_MS || bspd_state.bspd_active) {
+					// Jetson silent or digital BSPD: zero current, the inverters must not keep the last command
+					can_bus_send_FSIC_SetRelCurrent(1, 0, &hcan2);
+					can_bus_send_FSIC_SetRelCurrent(2, 0, &hcan2);
+				} else if (as_system.control_mode == AS_CONTROL_MODE_TORQUE) {
+					// torque_target in % (-100..100) -> per mille: + drive (SetRelCurrent), - motor brake (SetRelBrakeCurrent)
+					int32_t torque_1000 = (int32_t) as_system.target_torque * 10;
+					if (torque_1000 > 1000) {
+						torque_1000 = 1000;
+					} else if (torque_1000 < -1000) {
+						torque_1000 = -1000;
+					}
+					if (torque_1000 >= 0) {
+						can_bus_send_FSIC_SetRelCurrent(1, torque_1000, &hcan2);
+						can_bus_send_FSIC_SetRelCurrent(2, torque_1000, &hcan2);
+					} else {
+						can_bus_send_FSIC_SetRelBrakeCurrent(1, -torque_1000, &hcan2);
+						can_bus_send_FSIC_SetRelBrakeCurrent(2, -torque_1000, &hcan2);
+					}
+				} else {
+					if (as_system.target_rpm > MAX_RPM_AD) {
+						as_system.target_rpm = MAX_RPM_AD;
+					} else if (as_system.target_rpm < 0) {
+						as_system.target_rpm = 0;
+					}
 
-				int32_t erpm = (int32_t) as_system.target_rpm * MOTOR_POLE_PAIRS;
-				can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);                                            // INV1 ERPM command
-				can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);                                            // INV2 ERPM command
+					int32_t erpm = (int32_t) as_system.target_rpm * MOTOR_POLE_PAIRS;
+					can_bus_send_FSIC_SetERPM(1, erpm, &hcan2);  // INV1 ERPM command
+					can_bus_send_FSIC_SetERPM(2, erpm, &hcan2);  // INV2 ERPM command
+				}
 				can_send_vcu_rpm(&hcan3, (int32_t) myFSIC1.Actual_ERPM, (int32_t) myFSIC2.Actual_ERPM);  // feedback to jetson
 				can_bus_send_bms_close_contactors(1, &hcan2);
 
@@ -1083,6 +1106,11 @@ void debounce_shutdown_signal(void) {
 
 #ifdef BYPASS_SHUTDOWN
     vcu.shutdown_signal = 1;  // Force shutdown signal high for bench testing
+#endif
+#ifdef BYPASS_SHUTDOWN_AUTONOMOUS
+	if (acu.ASMS) {
+		vcu.shutdown_signal = 1;  // Bench: SDC ignored in autonomous only (ASMS on)
+	}
 #endif
 }
 

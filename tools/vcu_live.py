@@ -51,6 +51,12 @@ LIVE_VARS = [
     # Traction control / torque vectoring (traction_control_torque_vectoring.h)
     ("can_stats.can1_rx_count", "CAN dados: frames recebidas", 1),
     ("can_stats.can3_rx_count", "CAN autonomo: frames recebidas", 1),
+    # Autonomous ignition: ACU IGN (0x51) -> echoed back in VCU_IGN_R2D (0x600) as ignition_auto
+    ("last_acu_can_rx_time", "ACU 0x51: tick da ultima frame (ms)", 1),
+    ("acu.ignition_ad", "ACU pede ignicao (IGN, 0x51)", 1),
+    ("acu.ASMS", "ACU: ASMS", 1),
+    ("vcu.ignition_ad", "VCU devolve ignition_auto (0x600)", 1),
+    ("vcu.shutdown_signal", "VCU: SDC fechado (shutdown_signal, PB0)", 1),
     ("vehicle_sensors.front_wheel_speed_valid", "Rodas da frente OK", 1),
     ("vehicle_sensors.front_left_wheel_rpm", "Roda frente esq. (rpm, AQT2)", 1),
     ("vehicle_sensors.front_right_wheel_rpm", "Roda frente dir. (rpm, AQT2)", 1),
