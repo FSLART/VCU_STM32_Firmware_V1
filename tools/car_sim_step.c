@@ -73,6 +73,7 @@ void sim_step(void) {
     // what throttle_control_reset() takes from the #defines, from the GUI instead (live)
     vehicle.config.tyre_LMUX = VEHICLE_DYNAMICS_T26_CONFIG.tyre_LMUX * in->vcu_friction;
     vehicle.config.tyre_LMUY = VEHICLE_DYNAMICS_T26_CONFIG.tyre_LMUY * in->vcu_friction;
+    vehicle.config.straight_line_grip_scale = THROTTLE_STRAIGHT_LINE_BOOST;
     vehicle.config.traction_control_enable = (in->flags & SIM_TRACTION_CONTROL) != 0;
     vehicle.config.torque_vectoring_enable = (in->flags & SIM_TORQUE_VECTORING) != 0;
 

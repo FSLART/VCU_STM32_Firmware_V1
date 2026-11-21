@@ -218,6 +218,7 @@ SETTINGS = [
     Setting(DRIVING, TC, "THROTTLE_WET_TRACK", "bool", 0, 1, "Piso molhado (atrito THROTTLE_FRICTION_WET)"),
     Setting(DRIVING, TC, "THROTTLE_FRICTION_DRY", "float", 0.3, 1.5, "Atrito piso seco (x modelo do pneu)"),
     Setting(DRIVING, TC, "THROTTLE_FRICTION_WET", "float", 0.3, 1.5, "Atrito piso molhado (x modelo do pneu)"),
+    Setting(DRIVING, TC, "THROTTLE_STRAIGHT_LINE_BOOST", "float", 1.0, 3.0, "Reta: pedal a fundo pede isto x o atrito (1 = desligado)"),
     Setting(DRIVING, TC, "THROTTLE_FRONT_WHEEL_SPEEDS", "bool", 0, 1, "Usar velocidade das rodas da frente (AQT2)"),
     Setting(DRIVING, TC, "THROTTLE_IMU_GYRO", "bool", 0, 1, "Usar o giroscopio do IMU (guinada, torque vectoring)"),
     Setting(DRIVING, TC, "THROTTLE_IMU_ACCELERATIONS", "bool", 0, 1, "Usar as aceleracoes do IMU na velocidade (logs: pior)"),

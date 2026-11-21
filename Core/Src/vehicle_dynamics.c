@@ -7,7 +7,8 @@
  * IMU vx follows the driven wheels per ERPM frame within maximum_acceleration / _deceleration (no_imu_acceleration_margin)
  * and ax = dvx/dt, kinematic vy / r when nothing measures them, |vy| <= MAXIMUM_SIDESLIP x vx (the EKF ran away with the
  * real IMU), torque vectoring allocation that keeps Mz and never exceeds the request (split_axle), traction control as a
- * cap before that allocation, yaw PI anti-windup. Tests: tests/vehicle_dynamics (run_tests.py, replay_logs.py).
+ * cap before that allocation, yaw PI anti-windup, ay from the rear wheels without gyro, straight-line boost.
+ * Tests: tests/vehicle_dynamics (run_tests.py, replay_logs.py).
  */
 
 #include "vehicle_dynamics.h"
@@ -24,6 +25,7 @@
 #define BRAKING_ACCELERATION_MS2       -3.0f    // below this even free wheels may lock: they only bound vx
 #define REQUEST_DEAD_BAND_N            50.0f    // |driver force request| below this = coasting: driven wheels roll with the car
 #define MAXIMUM_DT_S                    0.05f   // a longer gap (debugger, missed periods) integrates only this [s]
+#define REAR_WHEEL_YAW_TIME_CONSTANT_S  0.1f    // low-pass of the rear wheel yaw rate (the two ERPM frames come ~16 ms apart)
 #define YAW_MOMENT_TOLERANCE_NM         1.0f    // delivered within this of the request = delivered (yaw PI anti-windup)
 // Plausible sensor ranges: beyond them, or NaN / infinity, the sensor counts as not valid for that step
 #define MAXIMUM_WHEEL_SPEED_RAD_S     600.0f    // 120 m/s at 0.2 m
@@ -80,6 +82,8 @@ const vehicle_dynamics_config_t VEHICLE_DYNAMICS_T26_CONFIG = {
     .regen_maximum_fraction = 0.5f,                     // TUNE: half of what the rear tyres can take, the hydraulic brakes need the rest
     .pedal_relative_to_available = true,                // 100 % pedal = what the wheels can take now (false: = the motor limits)
     .pedal_lateral_grip_reserve = 0.8f,                 // the pedal reference keeps 20 % of the lateral grip free for steering
+    .straight_line_grip_scale = 1.5f,                   // LSR 21-11 "too soft": straight-line full pedal asks 1.5 x the model, TC holds the slip
+    .straight_line_lateral_ms2 = 3.0f,                  // the boost fades out by this lateral acceleration (0.3 g)
     .steering_linear_gain = 0.180952f,                  // firmware STEERING_LINEAR_GAIN [rad/rad]
     .steering_cubic_gain = 0.003328f,                   // firmware STEERING_CUBIC_GAIN [rad/rad^3]
     .ackermann_fraction = 1.0f,                         // PLACEHOLDER: measure both road wheel angles at full lock
@@ -315,11 +319,21 @@ static void compute_road_wheel_angles(vehicle_dynamics_t *v, float steering_whee
 
 /* ============================== 2. IMU at the centre of gravity ============================== */
 
-static void move_imu_to_center_of_gravity(vehicle_dynamics_t *v, const vehicle_dynamics_input_t *input, bool imu_valid, float dt) {
+static void move_imu_to_center_of_gravity(vehicle_dynamics_t *v, const vehicle_dynamics_input_t *input, const checked_input_t *checked,
+                                          float dt) {
     const vehicle_dynamics_config_t *c = &v->config;
+    // no gyro: the yaw rate for ay from the rear wheel speed difference, not from the steering model. LSR 21-11: the
+    // steering sensor 18 deg off centre made a curve on the straight, the layer kept grip for it and gave 10 A
+    const bool rear_wheels = checked->wheel_speed_valid[WHEEL_REAR_LEFT] && checked->wheel_speed_valid[WHEEL_REAR_RIGHT];
+    if (rear_wheels) {
+        const float yaw_rate = (input->wheel_speed_rad_s[WHEEL_REAR_RIGHT] - input->wheel_speed_rad_s[WHEEL_REAR_LEFT])
+                               * c->wheel_radius_m / c->track_rear_m;
+        v->rear_wheel_yaw_rate_rad_s = low_pass(v->rear_wheel_yaw_rate_rad_s, yaw_rate, dt, REAR_WHEEL_YAW_TIME_CONSTANT_S);
+    }
+    const float yaw_rate = (checked->yaw_rate_valid || !rear_wheels) ? v->yaw_rate_rad_s : v->rear_wheel_yaw_rate_rad_s;
     float longitudinal = v->speed_derivative_ms2;                       // without IMU: ax = dvx/dt, ay = vx * r
-    float lateral = v->vehicle_speed_mps * v->yaw_rate_rad_s;
-    if (imu_valid) {                                                    // yaw rate / acceleration of the last step
+    float lateral = v->vehicle_speed_mps * yaw_rate;
+    if (checked->imu_valid) {                                           // yaw rate / acceleration of the last step
         const float imu_x = c->imu_ahead_of_center_of_gravity_m;
         longitudinal = input->imu_longitudinal_acceleration_ms2 + v->yaw_rate_rad_s * v->yaw_rate_rad_s * imu_x;
         lateral = input->imu_lateral_acceleration_ms2 - v->yaw_acceleration_rad_s2 * imu_x;
@@ -417,6 +431,11 @@ static two_track_inputs_t compute_tyre_limits(vehicle_dynamics_t *v, bool imu_va
 
 /* ============================== 4b. driver request from the pedals ============================== */
 
+/* Drive force over the tyre model the straight line allows: 1 in a corner, straight_line_grip_scale on a straight */
+static float straight_line_boost(const vehicle_dynamics_t *v) {
+    return 1.0f + v->straight_line_share * (v->config.straight_line_grip_scale - 1.0f);
+}
+
 /* Pedals -> shares; share x the force the driven wheels can take NOW (pedal_relative_to_available) or x the motor
  * limits -> total longitudinal force the driver asks for [N] */
 static void compute_driver_request(vehicle_dynamics_t *v, const vehicle_dynamics_input_t *input, const checked_input_t *checked) {
@@ -438,10 +457,16 @@ static void compute_driver_request(vehicle_dynamics_t *v, const vehicle_dynamics
     const float brake_share = clamp((brake - c->regen_start_bar) / (c->regen_full_bar - c->regen_start_bar), 0.0f, 1.0f);
     v->regen_fraction = brake_share * c->regen_maximum_fraction;
 
+    // straight line (|ay| under straight_line_lateral_ms2): 100 % asks up to straight_line_grip_scale x what the tyre model
+    // gives, within the motors, and traction control holds the slip. In a corner the model's grip stays the limit.
+    v->straight_line_share = clamp(1.0f - fabsf(v->lateral_acceleration_ms2) / fmaxf(c->straight_line_lateral_ms2, 0.1f), 0.0f, 1.0f);
+    const float boost = straight_line_boost(v);
+
     // 100 % = what the driven wheels can take now (or the motors' limits)
     float total_drive = 0.0f, total_regen = 0.0f;
     for (int wheel = 0; wheel < WHEEL_COUNT; wheel++) {
-        total_drive += c->pedal_relative_to_available ? v->available_drive_force_n[wheel] : v->maximum_drive_force_n[wheel];
+        total_drive += c->pedal_relative_to_available ? fminf(v->available_drive_force_n[wheel] * boost, v->motor_drive_limit_n[wheel])
+                                                      : v->maximum_drive_force_n[wheel];
         total_regen += c->pedal_relative_to_available ? v->available_regen_force_n[wheel] : v->maximum_brake_force_n[wheel];
     }
     v->driver_force_request_n = v->throttle_fraction * total_drive - v->regen_fraction * total_regen;
@@ -751,7 +776,7 @@ static void wheel_force_range(const vehicle_dynamics_t *v, int wheel, float tota
     }
     if (c->friction_limit_enable) {
         minimum = fmaxf(minimum, -v->friction_limit_n[wheel]);
-        maximum = fminf(maximum, v->friction_limit_n[wheel]);
+        maximum = fminf(maximum, v->friction_limit_n[wheel] * straight_line_boost(v));   // drive only: the straight line boost
     }
     *low = fminf(minimum, maximum);
     *high = maximum;
@@ -888,7 +913,7 @@ vehicle_dynamics_torque_t vehicle_dynamics_compute(vehicle_dynamics_t *vehicle, 
     const float dt = dt_s > 0.0f ? fminf(dt_s, MAXIMUM_DT_S) : 0.001f;     // NaN or <= 0 -> 1 ms
     const checked_input_t checked = check_inputs(input);                 // 0
     compute_road_wheel_angles(vehicle, checked.steering_wheel_angle_rad);  // 1
-    move_imu_to_center_of_gravity(vehicle, input, checked.imu_valid, dt);  // 2
+    move_imu_to_center_of_gravity(vehicle, input, &checked, dt);         // 2
     compute_wheel_loads(vehicle);                                        // 3
     const two_track_inputs_t model = compute_tyre_limits(vehicle, checked.imu_valid,    // 4
                                                          checked.imu_valid || checked.yaw_rate_valid || checked.front_wheel_speeds_valid);

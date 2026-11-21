@@ -268,6 +268,34 @@ TEST(test_starts_from_the_wheels_when_rolling) {
     CHECK(minimum_torque_factor() > 0.999f, minimum_torque_factor());
 }
 
+static float rear_available_force(void) {
+    return vd.available_drive_force_n[WHEEL_REAR_LEFT] + vd.available_drive_force_n[WHEEL_REAR_RIGHT];
+}
+
+TEST(test_straight_line_boost_ignores_the_steering_without_gyro) {
+    // LSR 21-11: the steering read a curve on the straight and, without gyro, the layer kept grip for it: 10 A at full
+    // pedal. Now ay comes from the rear wheels (equal = straight) and full pedal on a straight asks the boost over the model
+    // 10 m/s: the motors (power limit 26 kW) still have room for the boost
+    layer_init(false, 1.0f);
+    vehicle_dynamics_input_t input = {
+        .wheel_speed_rad_s = {0.0f, 0.0f, rad_s(10.0f), rad_s(10.0f)}, .rear_wheel_speeds_valid = true,
+        .steering_wheel_angle_rad = 0.3f, .steering_valid = true,     // steering sensor off centre: 3 deg of road wheel
+        .throttle_percent = 100.0f, .throttle_valid = true, .brake_pressure_valid = true,
+    };
+    for (int i = 0; i < 200; i++) vehicle_dynamics_compute(&vd, &input, DT);
+    CHECK(fabsf(vd.lateral_acceleration_ms2) < 0.1f, vd.lateral_acceleration_ms2);
+    CHECK(vd.straight_line_share > 0.99f, vd.straight_line_share);
+    CHECK(vd.driver_force_request_n > 1.45f * rear_available_force(), vd.driver_force_request_n / rear_available_force());
+    // a real left turn, 8 m/s2 (outer wheel faster): the model is the limit again
+    const float r = 8.0f / 10.0f, half_track = VEHICLE_DYNAMICS_T26_CONFIG.track_rear_m / 2.0f;
+    input.wheel_speed_rad_s[WHEEL_REAR_LEFT] = rad_s(10.0f - r * half_track);
+    input.wheel_speed_rad_s[WHEEL_REAR_RIGHT] = rad_s(10.0f + r * half_track);
+    for (int i = 0; i < 200; i++) vehicle_dynamics_compute(&vd, &input, DT);
+    CHECK(fabsf(vd.lateral_acceleration_ms2 - 8.0f) < 0.5f, vd.lateral_acceleration_ms2);
+    CHECK(vd.straight_line_share < 0.01f, vd.straight_line_share);
+    CHECK(vd.driver_force_request_n <= 1.001f * rear_available_force(), vd.driver_force_request_n / rear_available_force());
+}
+
 TEST(test_no_imu_speed_follows_coasting_and_braking) {
     layer_init(true, 1.0f);
     hold(15.0f, 0.0f, 0.0f, 400);
@@ -661,6 +689,7 @@ static void run(void) {
         RUN(test_no_imu_lock_does_not_drag_the_speed);
         RUN(test_no_imu_cornering_keeps_the_speed);
         RUN(test_starts_from_the_wheels_when_rolling);
+        RUN(test_straight_line_boost_ignores_the_steering_without_gyro);
         RUN(test_no_imu_speed_follows_coasting_and_braking);
         RUN(test_imu_sideslip_is_bounded);
         RUN(test_tv_never_drives_more_than_the_pedal);

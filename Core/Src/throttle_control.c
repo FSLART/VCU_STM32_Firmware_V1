@@ -93,6 +93,7 @@ void throttle_control_reset(void) {
     // The VCU switches (editor) decide, not the layer config
     vehicle_dynamics.config.traction_control_enable = TRACTION_CONTROL_ENABLE;
     vehicle_dynamics.config.torque_vectoring_enable = TORQUE_VECTORING_ENABLE;
+    vehicle_dynamics.config.straight_line_grip_scale = THROTTLE_STRAIGHT_LINE_BOOST;
     const float friction = THROTTLE_WET_TRACK ? THROTTLE_FRICTION_WET : THROTTLE_FRICTION_DRY;
     vehicle_dynamics.config.tyre_LMUX *= friction;
     vehicle_dynamics.config.tyre_LMUY *= friction;

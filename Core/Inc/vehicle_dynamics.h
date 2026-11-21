@@ -23,7 +23,9 @@
  *     ACKERMANN: turn centre on the rear axle line at R = L / tan(mean); inner wheel atan(L / (R - t/2)),
  *     outer atan(L / (R + t/2)), blended with the mean by ackermann_fraction (1 = full Ackermann, 0 = parallel).
  *  2. move_imu_to_center_of_gravity: ax_cg = ax_imu + r^2 x_imu, ay_cg = ay_imu - yaw acceleration x_imu;
- *     a first-order low-pass copy feeds the wheel loads.
+ *     a first-order low-pass copy feeds the wheel loads. Without IMU accelerations ay = vx r, r from the gyro, or without
+ *     gyro from the rear wheel speed difference (right - left) / track, NOT from the steering: a steering sensor off centre
+ *     must not turn a straight into a curve (LSR 21-11: 18 deg off, 10 A at full pedal on the straight).
  *  3. compute_wheel_loads (quasi-static): static + aero downforce (front share) + longitudinal transfer
  *     m ax h / L + lateral transfer m ay h * roll stiffness share / track.
  *  4. compute_tyre_limits, MAGIC FORMULA 5.2 (coefficients of the .tir) per wheel at its load: peak longitudinal
@@ -36,7 +38,10 @@
  *     throttle share = ((throttle % - start) / (full - start)) ^ curve exponent, 0..1; regen share = (brake bar -
  *     regen start) / (regen full - regen start) * regen maximum fraction (no regen from lifting the throttle).
  *     Driver force = throttle share x sum of the available drive forces - regen share x sum of the available regen
- *     forces (pedal_relative_to_available; false: x the motor limits). The brake has priority: brake pressed -> no
+ *     forces (pedal_relative_to_available; false: x the motor limits). STRAIGHT LINE: the available drive force (and the
+ *     friction cap of step 8) x 1 + straight_line_share (straight_line_grip_scale - 1), within the motors, straight_line_share
+ *     = 1 - |ay| / straight_line_lateral_ms2: full pedal on a straight asks more than the tyre model, traction control holds
+ *     the slip at the real grip; in a corner the model stays the limit. The brake has priority: brake pressed -> no
  *     drive. FS rules APPS / brake plausibility: brake pressed with more than 25 % throttle -> no drive until the
  *     throttle is back under 5 %. Throttle or brake sensor not valid -> no drive.
  *  5. run_kalman_filter, EXTENDED KALMAN FILTER, state vx, vy, r on the 4-WHEEL (two-track) MODEL with the MF lateral
@@ -166,6 +171,9 @@ typedef struct {
     float regen_maximum_fraction;                 // regen at full brake pressure, share of the available regen force
     bool pedal_relative_to_available;             // true: 100 % pedal = what the wheels can take now; false: = motor limits
     float pedal_lateral_grip_reserve;             // tyre room for the pedal counts the lateral force / this (< 1 = reserve)
+    float straight_line_grip_scale;               // straight line: 100 % pedal asks up to this x the tyre model (motors permitting),
+                                                  // traction control holds the slip; 1 = off
+    float straight_line_lateral_ms2;              // lateral acceleration at which the boost is gone (corner: the model is the limit)
     // Steering (road wheel angle = linear * x + cubic * x^3, x = steering wheel angle)
     float steering_linear_gain;
     float steering_cubic_gain;
@@ -248,6 +256,7 @@ typedef struct {
     float lateral_acceleration_unfiltered_ms2;
     float longitudinal_acceleration_ms2;          // low-pass, for the loads
     float lateral_acceleration_ms2;
+    float rear_wheel_yaw_rate_rad_s;              // (right - left rear wheel) / track, low-pass: the yaw rate for ay without gyro
     // 3-4. Loads and tyre limits
     float wheel_load_n[WHEEL_COUNT];
     float peak_longitudinal_force_n[WHEEL_COUNT];
@@ -266,6 +275,7 @@ typedef struct {
     float throttle_fraction;                      // after the pedal curve, 0..1
     float regen_fraction;                         // from the brake pressure, 0..regen_maximum_fraction
     bool pedal_plausibility_cut;                  // brake + > 25 % throttle seen: no drive until throttle < 5 %
+    float straight_line_share;                    // 1 = straight (full boost), 0 = corner (|ay| >= straight_line_lateral_ms2)
     float driver_force_request_n;                 // total longitudinal force the driver asks for, > 0 = drive [N]
     // 5. Kalman filter
     bool speed_started;                           // vx started from the wheels (first step with a wheel speed)

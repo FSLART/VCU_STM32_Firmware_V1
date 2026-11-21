@@ -110,7 +110,9 @@
 #define STEERING_LINEAR_GAIN    0.180952f                    // x term [rad/rad]
 #define STEERING_CUBIC_GAIN     0.003328f                    // x^3 term [rad/rad^3]
 #define STEERING_SIGN           -1.0f                        // Sensor reads > 0 turning RIGHT -> -1, so road wheel angle > 0 = left
-#define STEERING_OFFSET_DEG     0.0f                         // Steering angle with the wheels straight (AQT4 subtracts its calibrated centre since 26-10)
+#define STEERING_OFFSET_DEG     -17.9f                       // Steering angle with the wheels straight. LSR 21-11: the AQT4 reads -17.9 deg
+                                                             // with the wheels straight (fit vs the rear wheel speeds, r 0.98). If the AQT4
+                                                             // centre is recalibrated, set this back to 0: never both
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
 // IMU on the autonomous bus: IMU_Acceleration / IMU_Angular_Velocity = ROS /imu/acceleration, /imu/angular_velocity

@@ -58,10 +58,17 @@
 // LSR 20-11, full wet (old firmware): the rear tyres let go at 0.64-0.68 x the dry model on 3 of 4 wheels (actual iq
 // at breakaway, 10-18 km/h), one wheel at ~0.5. Without the IMU, traction control only holds a spin of BOTH rear wheels
 // if the friction here is at or below the real one (car_sim: 0.6 on a 0.5 track spins out, 0.55 on 0.55 keeps 3 % slip).
-// Start low, raise after a run with no spins.
+// LSR 21-11, mid-wet, 0.55: too soft (with the steering off centre: 10 A at full pedal). On a straight the layer now asks
+// straight_line_grip_scale (1.5) x this, so a low value here costs corner exits only. car_sim, 0.65 + the boost: 20 -> 70
+// km/h in 2.0 s on a 0.8 track (0.55 without boost: 3.4 s), 1.8 s dry; stable down to a 0.7 track.
+// Full wet: 0.5 (with the boost: car_sim, 0.55 on a 0.55 track spins out, 0.5 on a 0.6 track holds). Mid-wet: 0.65.
+// Dry: THROTTLE_WET_TRACK 0.
 #define THROTTLE_FRICTION_DRY  1.00f  // Dry track
-#define THROTTLE_FRICTION_WET  0.55f  // Wet track
+#define THROTTLE_FRICTION_WET  0.65f  // Wet track (mid-wet)
 #define THROTTLE_WET_TRACK     1      // 1 = wet track: THROTTLE_FRICTION_WET, 0 = dry: THROTTLE_FRICTION_DRY
+// Straight line (|ay| < 0.3 g): full pedal asks this x the tyre model above, within the motors, and traction control
+// holds the slip at the real grip. In a corner the model stays the limit. 1.0 = off.
+#define THROTTLE_STRAIGHT_LINE_BOOST  1.5f
 
 /* ========================= TORQUE RISE LIMIT ======================== */
 // Max drive current rise rate, % of the max drive current per s (500 = 0 -> 100 % in 0.2 s). 0 = no limit.
