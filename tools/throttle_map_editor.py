@@ -215,24 +215,12 @@ SETTINGS = [
         10000,
         "Subida max. do binario (%/s, 0 = sem limite) - picos de corrente",
     ),
-    Setting(
-        DRIVING,
-        TC,
-        "THROTTLE_REGEN_RAMP_UP_MS",
-        "int",
-        1,
-        5000,
-        "Regen: subida 0 -> 100 % (ms)",
-    ),
-    Setting(
-        DRIVING,
-        TC,
-        "THROTTLE_REGEN_RAMP_DOWN_MS",
-        "int",
-        1,
-        5000,
-        "Regen: descida 100 -> 0 % (ms)",
-    ),
+    Setting(DRIVING, TC, "THROTTLE_WET_TRACK", "bool", 0, 1, "Piso molhado (atrito THROTTLE_FRICTION_WET)"),
+    Setting(DRIVING, TC, "THROTTLE_FRICTION_DRY", "float", 0.3, 1.5, "Atrito piso seco (x modelo do pneu)"),
+    Setting(DRIVING, TC, "THROTTLE_FRICTION_WET", "float", 0.3, 1.5, "Atrito piso molhado (x modelo do pneu)"),
+    Setting(DRIVING, TC, "THROTTLE_FRONT_WHEEL_SPEEDS", "bool", 0, 1, "Usar velocidade das rodas da frente (AQT2)"),
+    Setting(DRIVING, TC, "THROTTLE_IMU_GYRO", "bool", 0, 1, "Usar o giroscopio do IMU (guinada, torque vectoring)"),
+    Setting(DRIVING, TC, "THROTTLE_IMU_ACCELERATIONS", "bool", 0, 1, "Usar as aceleracoes do IMU na velocidade (logs: pior)"),
     Setting(
         DRIVING,
         TC,
@@ -429,8 +417,6 @@ SETTINGS = [
         "Limite de travagem DC por inversor (A)",
     ),
 ]
-TCTV_SETTINGS.insert(2, Setting(TRACTION, TC, "THROTTLE_MAP_SPEED_LIMIT_ENABLE", "bool", 0, 1,
-                                "Mapa: velocidade limitada pela referencia do TC (patinagem nao sobe o mapa)"))
 SETTINGS += TCTV_SETTINGS
 BY_NAME = {s.name: s for s in SETTINGS}
 

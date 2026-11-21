@@ -4,6 +4,7 @@
 #include <powertrain_t26.h>
 #include "CAN_utils.h"
 
+#include <math.h>    // fabsf, fmaxf (VCU_states)
 #include <string.h>  // Add this for memset function
 
 #include "can_queue.h"
@@ -930,6 +931,29 @@ static float clamp_float(float value, float minimum, float maximum) {
     return (value < minimum) ? minimum : ((value > maximum) ? maximum : value);
 }
 
+/* VCU_states tc_state / tv_state from the vehicle dynamics layer: the controllers of traction_control_torque_vectoring.c
+ * no longer run, their states stay 0 (= disabled) whatever the layer does */
+static traction_control_state_t layer_traction_control_state(const vehicle_dynamics_t *v) {
+    if (!v->config.traction_control_enable) return TRACTION_CONTROL_STATE_DISABLED;
+    const bool cut_left = v->traction_control_torque_factor[WHEEL_REAR_LEFT] < 1.0f;
+    const bool cut_right = v->traction_control_torque_factor[WHEEL_REAR_RIGHT] < 1.0f;
+    if (cut_left && cut_right) return TRACTION_CONTROL_STATE_CUT_BOTH;
+    if (cut_left) return TRACTION_CONTROL_STATE_CUT_REAR_LEFT;
+    if (cut_right) return TRACTION_CONTROL_STATE_CUT_REAR_RIGHT;
+    return (v->driver_force_request_n == 0.0f) ? TRACTION_CONTROL_STATE_NO_DRIVE : TRACTION_CONTROL_STATE_GRIP;
+}
+
+/* BELOW_MIN_SPEED = steering valid but not active: below the minimum speed or no fresh gyro (the layer does not say which) */
+static torque_vectoring_state_t layer_torque_vectoring_state(const vehicle_dynamics_t *v, bool steering_valid) {
+    if (!v->config.torque_vectoring_enable) return TORQUE_VECTORING_STATE_DISABLED;
+    if (!steering_valid) return TORQUE_VECTORING_STATE_NO_STEERING_ANGLE;
+    if (!v->torque_vectoring_active) return TORQUE_VECTORING_STATE_BELOW_MIN_SPEED;
+    if (fabsf(v->yaw_moment_request_nm) >= 0.999f * v->config.maximum_yaw_moment_nm) return TORQUE_VECTORING_STATE_AT_MAX_SHIFT;
+    if (v->yaw_moment_request_nm > 1.0f) return TORQUE_VECTORING_STATE_MORE_TORQUE_RIGHT;   // Mz > 0 = turning left
+    if (v->yaw_moment_request_nm < -1.0f) return TORQUE_VECTORING_STATE_MORE_TORQUE_LEFT;
+    return TORQUE_VECTORING_STATE_STRAIGHT;
+}
+
 void can_bus_send_vcu_state(void) {
     // VCU_states on CAN2 (via TX queue): VCU state + traction control / torque vectoring debug
     static uint8_t counter = 0;
@@ -938,18 +962,21 @@ void can_bus_send_vcu_state(void) {
     powertrain_t26_vcu_states_init(&state_msg);
     state_msg.vcu_state = (uint8_t)current_state;
     state_msg.throttle_status = (uint8_t)throttle.status;
-    state_msg.tc_state = (uint8_t)traction_control.state;
-    state_msg.tv_state = (uint8_t)torque_vectoring.state;
+    state_msg.tc_state = (uint8_t)layer_traction_control_state(&vehicle_dynamics);
+    state_msg.tv_state = (uint8_t)layer_torque_vectoring_state(&vehicle_dynamics, s->steering_angle_valid);
     state_msg.front_wheel_speed_ok = s->front_wheel_speed_valid;
     state_msg.steering_angle_ok = s->steering_angle_valid;
     // Clamped to the signal ranges: the generated encoders do not clamp, out of range values would wrap
     state_msg.front_left_speed = powertrain_t26_vcu_states_front_left_speed_encode(clamp_float(s->front_left_speed_kmh, 0.0f, 127.5f));
     state_msg.front_right_speed = powertrain_t26_vcu_states_front_right_speed_encode(clamp_float(s->front_right_speed_kmh, 0.0f, 127.5f));
     state_msg.tc_factor_rear_left = powertrain_t26_vcu_states_tc_factor_rear_left_encode(
-        clamp_float(traction_control.rear_left.torque_factor * 100.0f, 0.0f, 100.0f));
+        clamp_float(vehicle_dynamics.traction_control_torque_factor[WHEEL_REAR_LEFT] * 100.0f, 0.0f, 100.0f));
     state_msg.tc_factor_rear_right = powertrain_t26_vcu_states_tc_factor_rear_right_encode(
-        clamp_float(traction_control.rear_right.torque_factor * 100.0f, 0.0f, 100.0f));
-    state_msg.tv_shift = powertrain_t26_vcu_states_tv_shift_encode(clamp_float(torque_vectoring.shift * 100.0f, -64.0f, 63.0f));
+        clamp_float(vehicle_dynamics.traction_control_torque_factor[WHEEL_REAR_RIGHT] * 100.0f, 0.0f, 100.0f));
+    // tv_shift: the left / right split while torque vectoring is active, (right - left) / |right + left|, else 0
+    const float left_n = vehicle_dynamics.wheel_force_n[WHEEL_REAR_LEFT], right_n = vehicle_dynamics.wheel_force_n[WHEEL_REAR_RIGHT];
+    const float shift = vehicle_dynamics.torque_vectoring_active ? (right_n - left_n) / fmaxf(fabsf(right_n + left_n), 1.0f) : 0.0f;
+    state_msg.tv_shift = powertrain_t26_vcu_states_tv_shift_encode(clamp_float(shift * 100.0f, -64.0f, 63.0f));
     state_msg.road_wheel_angle = powertrain_t26_vcu_states_road_wheel_angle_encode(clamp_float(s->road_wheel_angle_deg, -32.0f, 31.75f));
     state_msg.vcu_states_counter = counter++ & 0x0F;
 

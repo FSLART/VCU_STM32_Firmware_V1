@@ -43,6 +43,8 @@ void vehicle_sensors_update(int32_t rear_left_erpm, int32_t rear_right_erpm, uin
 
     s->front_wheel_speed_valid = (now_ms - s->front_wheel_frame_time_ms) <= SENSOR_TIMEOUT_MS;
     s->steering_angle_valid = (now_ms - s->steering_frame_time_ms) <= SENSOR_TIMEOUT_MS;
+    s->imu_acceleration_valid = s->imu_acceleration_frame_time_ms != 0 && (now_ms - s->imu_acceleration_frame_time_ms) <= IMU_TIMEOUT_MS;
+    s->imu_yaw_rate_valid = s->imu_yaw_rate_frame_time_ms != 0 && (now_ms - s->imu_yaw_rate_frame_time_ms) <= IMU_TIMEOUT_MS;
 
     s->front_left_speed_kmh = speed_kmh_from_wheel_rpm(s->front_left_wheel_rpm, FRONT_WHEEL_RADIUS_M);
     s->front_right_speed_kmh = speed_kmh_from_wheel_rpm(s->front_right_wheel_rpm, FRONT_WHEEL_RADIUS_M);
@@ -248,6 +250,14 @@ void vehicle_sensors_can_receive(const can_msg_t *message) {
     } else if (steering_frame && message->dlc >= 2) {
         vehicle_sensors.steering_angle_raw_deg = (int16_t)(message->data[0] | (message->data[1] << 8)) * 0.1f;
         vehicle_sensors.steering_frame_time_ms = message->timestamp;
+    } else if (message->bus == CAN_BUS_3 && message->id == AUTONOMOUS_T26_IMU_ACCELERATION_FRAME_ID && message->dlc >= 4) {
+        vehicle_sensors.imu_longitudinal_acceleration_ms2 =
+            IMU_LONGITUDINAL_SIGN * (int16_t)(message->data[0] | (message->data[1] << 8)) * 0.01f;
+        vehicle_sensors.imu_lateral_acceleration_ms2 = IMU_LATERAL_SIGN * (int16_t)(message->data[2] | (message->data[3] << 8)) * 0.01f;
+        vehicle_sensors.imu_acceleration_frame_time_ms = message->timestamp;
+    } else if (message->bus == CAN_BUS_3 && message->id == AUTONOMOUS_T26_IMU_ANGULAR_VELOCITY_FRAME_ID && message->dlc >= 6) {
+        vehicle_sensors.imu_yaw_rate_rad_s = IMU_YAW_RATE_SIGN * (int16_t)(message->data[4] | (message->data[5] << 8)) * 0.001f;
+        vehicle_sensors.imu_yaw_rate_frame_time_ms = message->timestamp;
     }
 }
 

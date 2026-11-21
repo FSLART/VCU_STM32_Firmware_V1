@@ -1,6 +1,6 @@
 /**
  * @file throttle_control.c
- * @brief Manual driving: accelerator -> relative current request (see throttle_control.h)
+ * @brief Manual driving: pedals -> vehicle dynamics layer -> motor current (see throttle_control.h)
  */
 
 #include "throttle_control.h"
@@ -8,13 +8,8 @@
 #include <math.h>
 #include <string.h>
 
-#include "pau_control.h"
-#include "traction_control_torque_vectoring.h"
-#include "throttle_map.h"
+#include "traction_control_torque_vectoring.h"  // vehicle_sensors, INVERTER_ID_*, STEERING_*, switches
 
-#if (THROTTLE_REGEN_RAMP_UP_MS <= 0) || (THROTTLE_REGEN_RAMP_DOWN_MS <= 0)
-#error "throttle_control.h: regen ramp times must be above 0"
-#endif
 #if MOTOR_POLE_PAIRS < 1
 #error "CAN_utils.h: MOTOR_POLE_PAIRS must be at least 1 (divides by it)"
 #endif
@@ -22,18 +17,20 @@
 #error "throttle_control.h: THROTTLE_REGEN_FADE_START_V must be below THROTTLE_REGEN_CUTOFF_V"
 #endif
 
-#define MAX_DT_MS 50                // Longest time step the ramps will integrate
+#define MAX_DT_MS 50                // Longest time step the torque rise limit will integrate
 #define BRAKE_LIMITS_PERIOD_MS 100  // How often the brake-limit frames are resent
+#define RPM_TO_RAD_S 0.10471976f    // 2 pi / 60
+#define DEGREES_TO_RADIANS 0.017453293f
 
 throttle_t throttle;
+vehicle_dynamics_t vehicle_dynamics;
 
 /* ============================== HELPERS ============================== */
 
 /**
  * @brief Speed of the slower rear motor, mechanical rpm
- * @details The slower wheel decides, so a wheel slowing down (locking) under regen
- *          reduces regen on both sides. Absolute value: the motors may turn in opposite
- *          electrical directions depending on how they are mounted.
+ * @details Absolute value: the motors may turn in opposite electrical directions depending on
+ *          how they are mounted.
  */
 static uint16_t slowest_motor_rpm(int32_t erpm_1, int32_t erpm_2) {
     uint32_t rpm_1 = (uint32_t)(erpm_1 < 0 ? -erpm_1 : erpm_1) / MOTOR_POLE_PAIRS;
@@ -64,16 +61,27 @@ static uint16_t dc_voltage_factor(uint16_t dc_voltage_v) {
 }
 
 /**
- * @brief Move a value towards a target by at most rate_per_s * dt (at least 1 per step)
+ * @brief Steps 3-5 on one motor current: regen limits, torque rise limit, digital BSPD (last)
+ * @param last_a current sent to this motor in the previous cycle (the rise starts from it)
  */
-static uint16_t rate_limit(uint16_t current, uint16_t target, uint32_t rate_per_s, uint32_t dt_ms) {
-    uint32_t max_step = (rate_per_s * dt_ms + 999u) / 1000u;
-    if (target > current) {
-        uint32_t step = target - current;
-        return (uint16_t)(current + (step < max_step ? step : max_step));
+static float limit_current(const throttle_t *t, float current_a, float last_a, float dt_s) {
+    if (current_a < 0.0f) {
+        current_a = (!THROTTLE_REGEN_ENABLE || t->inverter_fault) ? 0.0f : current_a * t->voltage_factor_1000 / 1000.0f;
     }
-    uint32_t step = current - target;
-    return (uint16_t)(current - (step < max_step ? step : max_step));
+    if (THROTTLE_TORQUE_RISE_MAX_PCT_S > 0) {
+        float maximum_rise = THROTTLE_TORQUE_RISE_MAX_PCT_S * 0.01f * vehicle_dynamics.config.motor_maximum_drive_current_a * dt_s;
+        current_a = fminf(current_a, fmaxf(last_a, 0.0f) + maximum_rise);
+    }
+    return t->bspd_active ? 0.0f : current_a;
+}
+
+/** @brief 0.1 A per bit: >= 0 drive (SetAcCurrent), < 0 brake towards 0 rpm (SetBrakeCurrent, positive value) */
+static void send_motor_current(uint8_t inverter_id, float current_a, CAN_HandleTypeDef *hcan) {
+    if (current_a >= 0.0f) {
+        can_bus_send_FSIC_SetAcCurrent(inverter_id, (int16_t)(current_a * 10.0f), hcan);
+    } else {
+        can_bus_send_FSIC_SetBrakeCurrent(inverter_id, (int16_t)(-current_a * 10.0f), hcan);
+    }
 }
 
 /* ============================= PUBLIC API ============================ */
@@ -81,106 +89,87 @@ static uint16_t rate_limit(uint16_t current, uint16_t target, uint32_t rate_per_
 void throttle_control_reset(void) {
     memset(&throttle, 0, sizeof(throttle));
     throttle.first_update = true;
-    traction_control_torque_vectoring_reset();
+    vehicle_dynamics_init(&vehicle_dynamics, &VEHICLE_DYNAMICS_T26_CONFIG);
+    // The VCU switches (editor) decide, not the layer config
+    vehicle_dynamics.config.traction_control_enable = TRACTION_CONTROL_ENABLE;
+    vehicle_dynamics.config.torque_vectoring_enable = TORQUE_VECTORING_ENABLE;
+    const float friction = THROTTLE_WET_TRACK ? THROTTLE_FRICTION_WET : THROTTLE_FRICTION_DRY;
+    vehicle_dynamics.config.tyre_LMUX *= friction;
+    vehicle_dynamics.config.tyre_LMUY *= friction;
 }
 
 void throttle_control_update(const APPS_Result_t *apps, bool bspd_active, const FSIC_t *inv1,
                              const FSIC_t *inv2, int32_t power_w, uint32_t now_ms) {
     throttle_t *t = &throttle;
+    (void)power_w;
 
     uint32_t dt_ms = t->first_update ? 0 : (now_ms - t->last_update_ms);
     if (dt_ms > MAX_DT_MS) dt_ms = MAX_DT_MS;
+    float dt_s = (float)dt_ms * 0.001f;
     t->last_update_ms = now_ms;
     t->first_update = false;
 
     /* --- 1. Inputs --- */
+    const FSIC_t *inverter_rear_left = (INVERTER_ID_REAR_LEFT == 1) ? inv1 : inv2;
+    const FSIC_t *inverter_rear_right = (INVERTER_ID_REAR_LEFT == 1) ? inv2 : inv1;
+    vehicle_sensors_update(inverter_rear_left->Actual_ERPM, inverter_rear_right->Actual_ERPM, now_ms);
+    const vehicle_sensors_t *s = &vehicle_sensors;
+
     t->pedal_1000 = apps->percentage_1000;
     t->apps_error = apps->error;
+    t->brake_bar = vcu.brake_raw * 0.1f;  // 0.1 bar raw (vcu.brake_pressure is truncated to whole bar)
+    t->brake_valid = (now_ms - vcu.brake_last_rx_time) <= SENSOR_TIMEOUT_MS;
     t->inverter_fault = (inv1->Actual_FaultCode != 0) || (inv2->Actual_FaultCode != 0);
     t->bspd_active = bspd_active;
     t->motor_rpm = slowest_motor_rpm(inv1->Actual_ERPM, inv2->Actual_ERPM);
     t->speed_kmh = speed_kmh_from_motor_rpm(t->motor_rpm);
-#if THROTTLE_MAP_SPEED_LIMIT_ENABLE
-    // A spinning wheel must not move the map up (more speed -> more torque -> more spin): cap at the
-    // traction control references, the speed each wheel would have rolling with the car (step 8, 5 ms old)
-    t->speed_kmh = fminf(t->speed_kmh, fminf(traction_control.rear_left.reference_speed_kmh,
-                                             traction_control.rear_right.reference_speed_kmh));
-#endif
     t->dc_voltage_v = (inv1->Actual_InputVoltage > inv2->Actual_InputVoltage) ? inv1->Actual_InputVoltage
                                                                               : inv2->Actual_InputVoltage;
-
-    /* --- 2. Throttle map: + drive, - regen --- */
-    int16_t request = throttle_map_lookup(t->pedal_1000, t->speed_kmh);
-
-    /* --- 3. PAU power limit (drive only, regen passes through) --- */
-#if PAU_CONTROL_ENABLE
-    request = pau_limit_accelerator(request, power_w);
-#else
-    (void)power_w;
-#endif
-    t->map_1000 = request;
-    uint32_t drive = (request > 0) ? (uint32_t)request : 0;
-    uint32_t regen = (request < 0) ? (uint32_t)(-request) : 0;
-
-    /* --- 4. Limits --- */
     t->voltage_factor_1000 = dc_voltage_factor(t->dc_voltage_v);
-    regen = regen * t->voltage_factor_1000 / 1000u;
-    if (t->apps_error) {
-        drive = 0;
-    }
-    if (!THROTTLE_REGEN_ENABLE || t->apps_error || t->inverter_fault) {
-        regen = 0;
-        t->regen_cmd_1000 = 0;  // Instant cut, no ramp
-    }
-    if (drive > 0) {
-        regen = 0;  // Driver asks for torque: release regen
-    }
-    t->drive_target_1000 = (uint16_t)drive;
-    t->regen_target_1000 = (uint16_t)regen;
 
-    /* --- 5. Regen ramp; drive only once regen has fully released --- */
-    uint32_t regen_ramp_ms = (regen > t->regen_cmd_1000) ? THROTTLE_REGEN_RAMP_UP_MS : THROTTLE_REGEN_RAMP_DOWN_MS;
-    t->regen_cmd_1000 = rate_limit(t->regen_cmd_1000, (uint16_t)regen, 1000u * 1000u / regen_ramp_ms, dt_ms);
-    if (t->regen_cmd_1000 > 0) {
-        drive = 0;
-    }
+    /* --- 2. Vehicle dynamics: pedal + brake -> Iq per wheel --- */
+    const float motor_erpm_to_wheel_rad_s = RPM_TO_RAD_S / MOTOR_POLE_PAIRS / vehicle_dynamics.config.gear_ratio;
+    const vehicle_dynamics_input_t input = {
+        .wheel_speed_rad_s = {
+            s->front_left_wheel_rpm * RPM_TO_RAD_S,
+            s->front_right_wheel_rpm * RPM_TO_RAD_S,
+            fabsf((float)inverter_rear_left->Actual_ERPM) * motor_erpm_to_wheel_rad_s,
+            fabsf((float)inverter_rear_right->Actual_ERPM) * motor_erpm_to_wheel_rad_s,
+        },
+        .front_wheel_speeds_valid = THROTTLE_FRONT_WHEEL_SPEEDS && s->front_wheel_speed_valid,
+        // ponytail: no inverter frame timestamp, ERPM always trusted; add one if a silent inverter must stop the TC
+        .rear_wheel_speeds_valid = true,
+        .steering_wheel_angle_rad = (s->steering_angle_raw_deg - STEERING_OFFSET_DEG) * STEERING_SIGN * DEGREES_TO_RADIANS,
+        .steering_valid = s->steering_angle_valid,
+        .imu_longitudinal_acceleration_ms2 = s->imu_longitudinal_acceleration_ms2,
+        .imu_lateral_acceleration_ms2 = s->imu_lateral_acceleration_ms2,
+        .imu_valid = THROTTLE_IMU_ACCELERATIONS && s->imu_acceleration_valid,
+        .yaw_rate_rad_s = s->imu_yaw_rate_rad_s,
+        .yaw_rate_valid = THROTTLE_IMU_GYRO && s->imu_yaw_rate_valid,   // torque vectoring needs it
+        .throttle_percent = t->pedal_1000 * 0.1f,
+        .throttle_valid = !t->apps_error,
+        .brake_pressure_bar = t->brake_bar,
+        .brake_pressure_valid = t->brake_valid,
+    };
+    vehicle_dynamics_torque_t torque = vehicle_dynamics_compute(&vehicle_dynamics, &input, dt_s);
 
-    /* --- 6. Torque rise limit: drive rises at most THROTTLE_TORQUE_RISE_MAX_PCT_S, falls instantly --- */
-    if (THROTTLE_TORQUE_RISE_MAX_PCT_S == 0 || drive <= t->drive_ramped) {
-        t->drive_ramped = (float)drive;
-    } else {
-        // %/s -> per mille per ms: x 10 / 1000
-        t->drive_ramped += THROTTLE_TORQUE_RISE_MAX_PCT_S * 0.01f * (float)dt_ms;
-        if (t->drive_ramped > drive) t->drive_ramped = (float)drive;
-    }
-    t->drive_cmd_1000 = (uint16_t)t->drive_ramped;
-
-    /* --- 7. Digital BSPD - LAST, overrides everything above --- */
-    if (t->bspd_active) {
-        t->drive_cmd_1000 = 0;
-        t->drive_ramped = 0.0f;  // Torque rises again from 0 once the BSPD clears
-        t->regen_cmd_1000 = 0;
-    }
-
-    /* --- 8. Traction control + torque vectoring: one drive command per motor --- */
-    const FSIC_t *inverter_rear_left = (INVERTER_ID_REAR_LEFT == 1) ? inv1 : inv2;
-    const FSIC_t *inverter_rear_right = (INVERTER_ID_REAR_LEFT == 1) ? inv2 : inv1;
-    traction_control_torque_vectoring_update(t->drive_cmd_1000, inverter_rear_left->Actual_ERPM,
-                                             inverter_rear_right->Actual_ERPM, now_ms, dt_ms,
-                                             &t->drive_command_left_1000, &t->drive_command_right_1000);
+    /* --- 3-5. Regen limits, torque rise limit, digital BSPD (last) --- */
+    t->current_left_a = limit_current(t, torque.rear_left.motor_current_a, t->current_left_a, dt_s);
+    t->current_right_a = limit_current(t, torque.rear_right.motor_current_a, t->current_right_a, dt_s);
 
     /* --- Status for Live Expressions --- */
+    bool regen_requested = vehicle_dynamics.regen_fraction > 0.0f;
     if (t->bspd_active) {
         t->status = THROTTLE_STATUS_BSPD_CUT;
     } else if (t->apps_error) {
         t->status = THROTTLE_STATUS_APPS_ERROR;
-    } else if (t->regen_cmd_1000 > 0) {
+    } else if (t->current_left_a < 0.0f || t->current_right_a < 0.0f) {
         t->status = THROTTLE_STATUS_REGEN;
-    } else if (t->drive_cmd_1000 > 0) {
+    } else if (t->current_left_a > 0.0f || t->current_right_a > 0.0f) {
         t->status = THROTTLE_STATUS_DRIVE;
-    } else if (t->map_1000 < 0 && t->inverter_fault) {
+    } else if (regen_requested && t->inverter_fault) {
         t->status = THROTTLE_STATUS_INVERTER_FAULT;
-    } else if (t->map_1000 < 0 && t->voltage_factor_1000 == 0) {
+    } else if (regen_requested && t->voltage_factor_1000 == 0) {
         t->status = THROTTLE_STATUS_REGEN_OFF_DC_VOLTAGE;
     } else {
         t->status = THROTTLE_STATUS_COAST;
@@ -195,16 +184,9 @@ void throttle_control_stop(CAN_HandleTypeDef *hcan) {
 }
 
 void throttle_control_send(CAN_HandleTypeDef *hcan, uint32_t now_ms) {
-    // One control mode per inverter per cycle - the inverter follows the last command
-    // it received, so sending both would make it switch modes every cycle.
-    if (throttle.regen_cmd_1000 > 0) {
-        can_bus_send_FSIC_SetRelBrakeCurrent(1, (int16_t)throttle.regen_cmd_1000, hcan);
-        can_bus_send_FSIC_SetRelBrakeCurrent(2, (int16_t)throttle.regen_cmd_1000, hcan);
-    } else {
-        // Drive: per motor, after traction control / torque vectoring (= drive_cmd_1000 when off)
-        can_bus_send_FSIC_SetRelCurrent(INVERTER_ID_REAR_LEFT, (int16_t)throttle.drive_command_left_1000, hcan);
-        can_bus_send_FSIC_SetRelCurrent(INVERTER_ID_REAR_RIGHT, (int16_t)throttle.drive_command_right_1000, hcan);
-    }
+    // One control mode per inverter per cycle - the inverter follows the last command it received
+    send_motor_current(INVERTER_ID_REAR_LEFT, throttle.current_left_a, hcan);
+    send_motor_current(INVERTER_ID_REAR_RIGHT, throttle.current_right_a, hcan);
 
 #if THROTTLE_SEND_BRAKE_LIMITS
     // Max brake currents (negative, scale 0.1 A), resent periodically in case a frame is lost

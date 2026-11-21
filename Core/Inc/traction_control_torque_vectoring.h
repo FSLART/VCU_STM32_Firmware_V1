@@ -8,7 +8,7 @@
  *
  * Three parts, in this order, each with its own global for Live Expressions:
  *
- * 1. VEHICLE SENSORS ("vehicle_sensors") - no IMU on the car:
+ * 1. VEHICLE SENSORS ("vehicle_sensors") - this TC / TV uses no IMU (the IMU only goes to vehicle_dynamics):
  *      front wheel speed  = wheel rpm * 2 pi R * 60 / 1000                       [km/h], per front wheel
  *      rear wheel speed   = ERPM / pole pairs / gear ratio * 2 pi R * 60 / 1000   [km/h], per rear motor
  *      road wheel angle   = linear * x + cubic * x^3, x = (steering angle - offset) * sign  [rad], > 0 = left
@@ -77,6 +77,8 @@
  * CAN inputs (raw decode, IDs from the generated T26_DBC code):
  *   AQT2  FRONT_LEFT_WHEEL_RPM bytes 0-1, FRONT_RIGHT_WHEEL_RPM bytes 2-3, uint16 LE, 1 rpm
  *         data bus, DATA_T26_AQT2_FRAME_ID
+ *   IMU   IMU_Acceleration X / Y bytes 0-1 / 2-3, int16 LE, 0.01 m/s2; IMU_Angular_Velocity Z bytes 4-5,
+ *         int16 LE, 0.001 rad/s - autonomous bus AUTONOMOUS_T26_IMU_ACCELERATION / _ANGULAR_VELOCITY_FRAME_ID
  *   AQT4  ST_ANGLE bytes 0-1, int16 LE, 0.1 deg - autonomous bus AUTONOMOUS_T26_AQT4_FRAME_ID AND
  *         powertrain bus POWERTRAIN_T26_AQT4_FRAME_ID, newest of either (redundancy)
  */
@@ -91,7 +93,7 @@
 
 /* ============================== SWITCHES ============================= */
 
-#define TRACTION_CONTROL_ENABLE  0  // 1 = traction control on
+#define TRACTION_CONTROL_ENABLE  1  // 1 = traction control on (vehicle_dynamics.c). On for the wet: LSR 20-11 spins
 #define TORQUE_VECTORING_ENABLE  0  // 1 = torque vectoring on
 
 /* ================================ CAR ================================ */
@@ -108,9 +110,15 @@
 #define STEERING_LINEAR_GAIN    0.180952f                    // x term [rad/rad]
 #define STEERING_CUBIC_GAIN     0.003328f                    // x^3 term [rad/rad^3]
 #define STEERING_SIGN           -1.0f                        // Sensor reads > 0 turning RIGHT -> -1, so road wheel angle > 0 = left
-#define STEERING_OFFSET_DEG     5.0f                         // Steering angle with the wheels straight
+#define STEERING_OFFSET_DEG     0.0f                         // Steering angle with the wheels straight (AQT4 subtracts its calibrated centre since 26-10)
 #define FRONT_WHEEL_RADIUS_M    THROTTLE_WHEEL_RADIUS_M      // Front wheel speed calibration (step 3)
 #define SENSOR_TIMEOUT_MS       300                          // Frame older than this -> sensor missing
+// IMU on the autonomous bus: IMU_Acceleration / IMU_Angular_Velocity = ROS /imu/acceleration, /imu/angular_velocity
+// (IMU frame, gravity included). Mounting from the 13-10 logs: x backwards, y right, z up.
+#define IMU_LONGITUDINAL_SIGN   -1.0f                        // car ax (> 0 = speeding up) = this x IMU x
+#define IMU_LATERAL_SIGN        -1.0f                        // car ay (> 0 = towards the left) = this x IMU y
+#define IMU_YAW_RATE_SIGN        1.0f                        // car yaw rate (> 0 = turning left) = this x IMU z
+#define IMU_TIMEOUT_MS           200                         // IMU frame older than this -> IMU missing (13-10: gaps ~130 ms)
 
 /* ========================== TRACTION CONTROL ========================= */
 // What the car can do, in rear wheel speed units (what the controller sees):
@@ -179,6 +187,15 @@ typedef struct {
     float road_wheel_angle_deg;         // > 0 = left
     float vehicle_speed_kmh;            // Mean front wheel speed along the car
     float lateral_acceleration_g;       // Kinematic, > 0 = left turn
+
+    // IMU (autonomous bus), car axes
+    float imu_longitudinal_acceleration_ms2;  // > 0 = speeding up
+    float imu_lateral_acceleration_ms2;       // > 0 = towards the left
+    float imu_yaw_rate_rad_s;                 // > 0 = turning left
+    uint32_t imu_acceleration_frame_time_ms;
+    uint32_t imu_yaw_rate_frame_time_ms;
+    bool imu_acceleration_valid;              // Frame newer than IMU_TIMEOUT_MS
+    bool imu_yaw_rate_valid;
 } vehicle_sensors_t;
 
 // 2. Torque vectoring (feedforward)
